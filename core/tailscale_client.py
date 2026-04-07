@@ -127,14 +127,14 @@ async def _get_ip_from_local_socket(socket_path: str) -> str | None:
             logger.debug(f"Local socket {socket_path} returned no IPv4 in TailscaleIPs: {ips}")
         return ip
     except httpx.HTTPError as exc:
-        logger.debug(f"Local socket request to {socket_path} failed: {exc}")
+        logger.warning(f"Local socket request to {socket_path} failed: {exc}")
         return None
     except (ValueError, KeyError) as exc:
-        logger.debug(f"Could not parse local socket response from {socket_path}: {exc}")
+        logger.warning(f"Could not parse local socket response from {socket_path}: {exc}")
         return None
     except OSError as exc:
         # Covers permission denied and other socket-level errors.
-        logger.debug(f"Cannot access Tailscale socket {socket_path}: {exc}")
+        logger.warning(f"Cannot access Tailscale socket {socket_path}: {exc}")
         return None
 
 

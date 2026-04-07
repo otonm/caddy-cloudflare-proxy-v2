@@ -30,7 +30,8 @@ services:
       # Optional: mount the Tailscale daemon socket to enable automatic Tailscale
       # source-IP detection without setting TS_HOST_NAME. Requires Tailscale to be
       # installed and running on the host. Remove if not using Tailscale source IP.
-      - /run/tailscale/tailscaled.sock:/run/tailscale/tailscaled.sock:ro
+      # Unix sockets need write access for bidirectional communication (connect requires it).
+      - /run/tailscale/tailscaled.sock:/run/tailscale/tailscaled.sock
     env_file:
       - .env
     depends_on:
