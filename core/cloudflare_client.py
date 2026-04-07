@@ -1,7 +1,7 @@
 """Async Cloudflare API client for DNS A-record management.
 
 Responsibilities:
-- Look up zone IDs (cached — immutable).
+- List available zones (for the UI zone selector).
 - Check, create, update, and delete A records.
 """
 
@@ -14,29 +14,15 @@ from collections.abc import AsyncIterator
 import httpx
 
 from core.config import settings
+from core.models import CloudflareZone
 
 logger = logging.getLogger(__name__)
 
 _CF_BASE = "https://api.cloudflare.com/client/v4"
 
-# Zone IDs are immutable — cache by zone name to avoid a lookup on every entry operation.
-_zone_cache: dict[str, str] = {}
-
 
 class CloudflareError(Exception):
     """Raised when a Cloudflare API call fails in an unrecoverable way."""
-
-
-def _derive_zone_name(domain: str) -> str:
-    """Extract the registrable zone from a domain name (last two labels).
-
-    Warning: does not handle second-level TLDs (e.g. .co.uk) — zone
-    derivation for those requires a public suffix list, which is out of scope.
-    """
-    parts = domain.rstrip(".").split(".")
-    if len(parts) < 2:
-        raise ValueError(f"Cannot derive zone from domain: {domain!r}")
-    return ".".join(parts[-2:])
 
 
 @contextlib.asynccontextmanager
@@ -68,26 +54,25 @@ def _check_response(response: httpx.Response, operation: str) -> None:
         raise CloudflareError(f"Cloudflare API {operation} failed: {errors}")
 
 
-async def get_zone_id(domain: str) -> str:
-    """Return the Cloudflare zone ID for the zone containing `domain`.
+async def list_zones() -> list[CloudflareZone]:
+    """Return all Cloudflare zones accessible with the configured API token.
 
-    Derives the zone name from the domain's last two labels (e.g., "app.example.com"
-    → zone "example.com"). Result is cached — zone IDs are immutable.
-    Raises CloudflareError if the zone is not found.
+    Results are sorted alphabetically by zone name. The UI uses this list to
+    populate the zone selector; the user's choice is stored as zone_id on the
+    ProxyEntry so subsequent DNS calls use the correct zone without re-deriving it.
+
+    Raises CloudflareError if the API call fails.
     """
-    zone_name = _derive_zone_name(domain)
-    if zone_name in _zone_cache:
-        return _zone_cache[zone_name]
-    logger.info(f"Looking up Cloudflare zone for {zone_name}")
+    logger.info("Fetching Cloudflare zones")
     async with _cf_client() as client:
-        response = await client.get("/zones", params={"name": zone_name})
-        _check_response(response, f"get zone for {zone_name}")
+        response = await client.get("/zones", params={"per_page": 100})
+        _check_response(response, "list zones")
         data = response.json()
-    if not data.get("result"):
-        raise CloudflareError(f"Zone not found for domain {domain!r} (zone={zone_name!r})")
-    zone_id: str = data["result"][0]["id"]
-    _zone_cache[zone_name] = zone_id
-    return zone_id
+
+    zones = [CloudflareZone(id=z["id"], name=z["name"]) for z in data.get("result", [])]
+    zones.sort(key=lambda z: z.name)
+    logger.debug(f"Found {len(zones)} Cloudflare zones")
+    return zones
 
 
 async def get_a_record(zone_id: str, name: str) -> tuple[str, str] | None:

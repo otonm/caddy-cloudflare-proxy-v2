@@ -12,7 +12,8 @@ the application is fully functional end-to-end.
 
 - All previous plans must be complete.
 - Plan 08: all `proxy_service` functions
-- Plan 03: `ProxyEntry`, `TargetType`, `SourceIPType`, `SSLMethod`, `DomainExistsError`, `ProxyTarget`
+- Plan 03: `ProxyEntry`, `TargetType`, `SourceIPType`, `SSLMethod`, `DomainExistsError`, `ProxyTarget`, `CloudflareZone`
+- Plan 08: `proxy_service.get_available_zones()` — returns `list[CloudflareZone]` sorted by name
 
 ---
 
@@ -31,6 +32,9 @@ Both routes render the same `_render_form` function with different initial state
 ┌─────────────────────────────────────────────────┐
 │  New Proxy Entry (or: Edit: app.example.com)    │
 ├──────────────────────────────────────────────────┤
+│ Cloudflare Zone *  [▼ example.com              ] │
+│                    (single zone auto-selected)   │
+│                                                  │
 │ Domain *           [app.example.com____________] │
 │                    OR [▼ choose existing domain] │
 │                                                  │
@@ -58,6 +62,16 @@ Both routes render the same `_render_form` function with different initial state
 │               [Cancel]  [Save Entry]             │
 └──────────────────────────────────────────────────┘
 ```
+
+### Cloudflare Zone Selector
+
+Loaded asynchronously on page open via `proxy_service.get_available_zones()`.
+
+- If **one zone**: rendered as a read-only label (no dropdown needed).
+- If **multiple zones**: rendered as a `ui.select` dropdown, first zone alphabetically pre-selected.
+- If **zero zones or error**: show an error notification and disable the Save button.
+
+The selected zone's `id` is stored as `zone_id` in the submitted `ProxyEntry`.
 
 ### Domain Input with Autocomplete
 

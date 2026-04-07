@@ -45,6 +45,7 @@ class ProxyEntry(BaseModel):
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4)
     domain: str  # fully-qualified, e.g. "app.example.com"
+    zone_id: str  # Cloudflare zone ID — selected by the user in the form
     target_type: TargetType
     target_value: str  # always "host:port" format
     source_ip_type: SourceIPType
@@ -101,6 +102,13 @@ class ProxyConfig(BaseModel):
 # ---------------------------------------------------------------------------
 # Runtime-only helper types — used by the UI and service layers, never persisted
 # ---------------------------------------------------------------------------
+
+
+class CloudflareZone(BaseModel):
+    """A Cloudflare DNS zone available for A-record management (UI use only)."""
+
+    id: str  # Cloudflare zone ID
+    name: str  # zone apex, e.g. "example.com"
 
 
 class ContainerInfo(BaseModel):
