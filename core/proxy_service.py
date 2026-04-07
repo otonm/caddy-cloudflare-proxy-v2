@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from typing import Final
 
 import core.store as store
 from core.caddy_client import CaddyError, apply_config, health_check
@@ -39,6 +40,8 @@ logger = logging.getLogger(__name__)
 _public_ip: str | None = None
 _tailscale_ip: str | None = None
 
+# seconds between Caddy availability checks
+_CADDY_RETRY_INTERVAL: Final[int] = 5
 
 # ---------------------------------------------------------------------------
 # Private helpers
@@ -113,21 +116,37 @@ async def sync_caddy_config() -> None:
     logger.debug(f"Caddy config synced with {len(entries)} entries")
 
 
+async def _wait_for_caddy_and_sync() -> None:
+    """Poll Caddy every 5 s until it becomes reachable, then sync config.
+
+    Runs as a background asyncio task spawned by startup() when Caddy is not
+    yet available.  Loops forever — the task is cancelled when the process exits.
+    """
+    while True:
+        await asyncio.sleep(_CADDY_RETRY_INTERVAL)
+        healthy = await health_check()
+        if healthy:
+            break
+        logger.warning("Caddy Admin API still not reachable — retrying...")
+
+    logger.info("Caddy Admin API is now reachable — syncing config")
+    await sync_caddy_config()
+    logger.info("Caddy config synchronized after delayed startup")
+
+
 async def startup() -> None:
     """Full startup sequence called from main.py via app.on_startup.
 
     Runs initialize(), health-checks Caddy, then syncs the config.
-    If Caddy is unreachable at startup, logs an error but does not raise —
-    the app starts anyway, and Caddy may recover (e.g. container restart race).
+    If Caddy is unreachable, a background task retries every 5 s until it
+    connects — the app starts and remains usable while Caddy is catching up.
     """
     await initialize()
 
     healthy = await health_check()
     if not healthy:
-        logger.error(
-            "Caddy Admin API is not reachable at startup — check Caddy container. "
-            "Config will not be synced until Caddy is available."
-        )
+        logger.warning("Caddy Admin API not reachable — retrying...")
+        asyncio.create_task(_wait_for_caddy_and_sync())
         return
 
     await sync_caddy_config()

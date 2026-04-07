@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 # Volume-mount /data to persist config across container restarts.
 CADDY_ADMIN_URL: Final[str] = "http://caddy:2019"
 DATA_DIR: Final[pathlib.Path] = pathlib.Path("/data")
-APP_PORT: Final[int] = 8080
+APP_PORT: Final[int] = 8088
 CONFIG_FILE: Final[pathlib.Path] = DATA_DIR / "proxy_config.json"
 
 
