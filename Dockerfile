@@ -19,6 +19,6 @@ COPY main.py .
 # Data directory for persistent JSON config (can be volume-mounted)
 RUN mkdir -p /data
 
-EXPOSE 8080
+EXPOSE 8088
 
 CMD ["uv", "run", "python", "main.py"]

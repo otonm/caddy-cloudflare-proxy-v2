@@ -9,3 +9,8 @@ RUN xcaddy build \
 FROM caddy:latest
 
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
+
+# Bind the admin API to all interfaces so the app container can reach it
+# via the Docker network hostname (caddy:2019). The default "localhost:2019"
+# only listens on loopback and is unreachable from other containers.
+RUN printf '{\n\tadmin 0.0.0.0:2019\n}\n' > /etc/caddy/Caddyfile

@@ -157,6 +157,7 @@ async def apply_config(
     """
     cf_token = settings.cf_api_token.get_secret_value()
     config = _build_config(entries, cf_token, settings.acme_email)
+    logger.debug(f"Built Caddy config: {config}")
 
     logger.info(f"Applying Caddy config with {len(entries)} entries")
     async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:

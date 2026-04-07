@@ -1,8 +1,6 @@
 services:
   caddy:
-    build:
-      context: .
-      dockerfile: Dockerfile.caddy
+    image: ghcr.io/otonm/caddy-cloudflare-proxy-v2/caddy:latest
     container_name: caddy
     restart: unless-stopped
     ports:
@@ -12,7 +10,7 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:2019/config/"]
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:2019/config/"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -21,13 +19,11 @@ services:
       - proxy_net
 
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/otonm/caddy-cloudflare-proxy-v2/app:latest
     container_name: caddy-proxy-app
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "8088:8088"
     volumes:
       - app_data:/data
       - /var/run/docker.sock:/var/run/docker.sock:ro
