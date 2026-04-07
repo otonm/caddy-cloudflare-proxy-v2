@@ -66,14 +66,16 @@ _TARGET_LABELS: dict[TargetType, str] = {
 def _ssl_quasar_options(http01_disabled: bool) -> str:
     """Build a JSON options array for q-option-group with HTTP01 conditionally disabled.
 
-    Passed as `:options='...'` via .props() to override NiceGUI's static binding so
-    Quasar renders HTTP Request as greyed-out when it is incompatible with Tailscale IP.
+    Passed as `:options='...'` via .props() to override NiceGUI's static binding.
+    Values MUST be integer indices (0, 1, 2) matching NiceGUI's internal _values list,
+    because NiceGUI's radio event handler does `self._values[e.args]` — if we used the
+    actual enum strings Quasar would send them back as strings and the index lookup fails.
     """
     return json.dumps(
         [
-            {"label": _SSL_LABELS[SSLMethod.DNS01], "value": SSLMethod.DNS01},
-            {"label": _SSL_LABELS[SSLMethod.HTTP01], "value": SSLMethod.HTTP01, "disable": http01_disabled},
-            {"label": _SSL_LABELS[SSLMethod.NONE], "value": SSLMethod.NONE},
+            {"label": _SSL_LABELS[SSLMethod.DNS01], "value": 0},
+            {"label": _SSL_LABELS[SSLMethod.HTTP01], "value": 1, "disable": http01_disabled},
+            {"label": _SSL_LABELS[SSLMethod.NONE], "value": 2},
         ]
     )
 
@@ -247,17 +249,17 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
     ts_ip_available = ts_ip_val is not None
     public_ip_val = proxy_service.get_public_ip()
 
-    # ---- source IP options (HTML labels: IP shown smaller and grey) -------
-    def _ip_badge(ip: str | None) -> str:
-        if not ip:
-            return ""
-        return f" <span class='text-caption text-grey-6'>{ip}</span>"
+    # ---- source IP options — IP shown inline in parentheses ---------------
+    # NiceGUI escapes option label strings before passing to Quasar so HTML
+    # tags render as literal text; plain text parentheticals are used instead.
+    def _ip_suffix(ip: str | None) -> str:
+        return f"  ({ip})" if ip else ""
 
     # Tailscale first so it appears as the top radio option.
     source_ip_opts: dict[SourceIPType, str] = {}
     if ts_ip_available:
-        source_ip_opts[SourceIPType.TAILSCALE] = f"Tailscale IP{_ip_badge(ts_ip_val)}"
-    source_ip_opts[SourceIPType.PUBLIC] = f"Public IP{_ip_badge(public_ip_val)}"
+        source_ip_opts[SourceIPType.TAILSCALE] = f"Tailscale IP{_ip_suffix(ts_ip_val)}"
+    source_ip_opts[SourceIPType.PUBLIC] = f"Public IP{_ip_suffix(public_ip_val)}"
 
     # Default new entries to Tailscale IP when available.
     if not existing_entry:
@@ -476,7 +478,7 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
         source_ip_radio = ui.radio(
             options=source_ip_opts,
             value=init_source_ip,
-        ).props("html")
+        )
         if not ts_ip_available:
             ui.label("Tailscale source IP not available — set TS_HOST_NAME env var to enable.").classes(
                 "text-grey text-sm"
