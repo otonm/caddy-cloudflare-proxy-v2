@@ -15,6 +15,7 @@ Dynamic behaviour:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import uuid
 from collections import defaultdict
@@ -46,8 +47,8 @@ logger = logging.getLogger(__name__)
 
 _SSL_LABELS: dict[SSLMethod, str] = {
     SSLMethod.NONE: "No SSL",
-    SSLMethod.HTTP01: "HTTPS – Auto (HTTP Challenge)",
-    SSLMethod.DNS01: "HTTPS – DNS (Cloudflare)",
+    SSLMethod.HTTP01: "HTTP Request",
+    SSLMethod.DNS01: "DNS Request",
 }
 
 _TARGET_LABELS: dict[TargetType, str] = {
@@ -56,15 +57,25 @@ _TARGET_LABELS: dict[TargetType, str] = {
     TargetType.CUSTOM: "Custom",
 }
 
-_SOURCE_IP_LABELS: dict[SourceIPType, str] = {
-    SourceIPType.PUBLIC: "Public IP",
-    SourceIPType.TAILSCALE: "Tailscale IP",
-}
-
 
 # ---------------------------------------------------------------------------
 # Pure helpers
 # ---------------------------------------------------------------------------
+
+
+def _ssl_quasar_options(http01_disabled: bool) -> str:
+    """Build a JSON options array for q-option-group with HTTP01 conditionally disabled.
+
+    Passed as `:options='...'` via .props() to override NiceGUI's static binding so
+    Quasar renders HTTP Request as greyed-out when it is incompatible with Tailscale IP.
+    """
+    return json.dumps(
+        [
+            {"label": _SSL_LABELS[SSLMethod.DNS01], "value": SSLMethod.DNS01},
+            {"label": _SSL_LABELS[SSLMethod.HTTP01], "value": SSLMethod.HTTP01, "disable": http01_disabled},
+            {"label": _SSL_LABELS[SSLMethod.NONE], "value": SSLMethod.NONE},
+        ]
+    )
 
 
 def _compose_target_value(
@@ -87,16 +98,6 @@ def _compose_target_value(
         return f"{ts_hostname}:{ts_port.strip()}"
     # CUSTOM
     return custom_value.strip()
-
-
-def _ssl_options(source_ip: SourceIPType) -> dict[SSLMethod, str]:
-    """Return SSL method → label dict for the given source IP type.
-
-    HTTP-01 is excluded for TAILSCALE source because it requires public
-    port-80 reachability, which a Tailscale IP does not provide.
-    """
-    methods = proxy_service.get_available_ssl_methods(source_ip)
-    return {m: _SSL_LABELS[m] for m in methods}
 
 
 # ---------------------------------------------------------------------------
@@ -206,7 +207,7 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
     # ---- initial values (from existing entry or defaults) -----------------
     init_target_type: TargetType = existing_entry.target_type if existing_entry else TargetType.DOCKER
     init_source_ip: SourceIPType = existing_entry.source_ip_type if existing_entry else SourceIPType.PUBLIC
-    init_ssl: SSLMethod = existing_entry.ssl_method if existing_entry else SSLMethod.NONE
+    init_ssl: SSLMethod = existing_entry.ssl_method if existing_entry else SSLMethod.DNS01
     init_notes: str = existing_entry.notes if existing_entry else ""
 
     # Parse target_value for sub-field pre-population
@@ -242,14 +243,27 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
         init_zone_id = zones[0].id
 
     # ---- tailscale source IP availability ---------------------------------
-    ts_ip_available = proxy_service.get_tailscale_ip() is not None
+    ts_ip_val = proxy_service.get_tailscale_ip()
+    ts_ip_available = ts_ip_val is not None
+    public_ip_val = proxy_service.get_public_ip()
 
-    # ---- source IP options ------------------------------------------------
-    source_ip_opts: dict[SourceIPType, str] = {SourceIPType.PUBLIC: _SOURCE_IP_LABELS[SourceIPType.PUBLIC]}
+    # ---- source IP options (HTML labels: IP shown smaller and grey) -------
+    def _ip_badge(ip: str | None) -> str:
+        if not ip:
+            return ""
+        return f" <span class='text-caption text-grey-6'>{ip}</span>"
+
+    # Tailscale first so it appears as the top radio option.
+    source_ip_opts: dict[SourceIPType, str] = {}
     if ts_ip_available:
-        source_ip_opts[SourceIPType.TAILSCALE] = _SOURCE_IP_LABELS[SourceIPType.TAILSCALE]
+        source_ip_opts[SourceIPType.TAILSCALE] = f"Tailscale IP{_ip_badge(ts_ip_val)}"
+    source_ip_opts[SourceIPType.PUBLIC] = f"Public IP{_ip_badge(public_ip_val)}"
 
-    # Clamp init_source_ip to available options
+    # Default new entries to Tailscale IP when available.
+    if not existing_entry:
+        init_source_ip = SourceIPType.TAILSCALE if ts_ip_available else SourceIPType.PUBLIC
+
+    # Clamp to available options (Tailscale may have been removed since edit was created).
     if init_source_ip not in source_ip_opts:
         init_source_ip = SourceIPType.PUBLIC
 
@@ -287,7 +301,6 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
 
             ui.select(
                 options=zone_options,
-                label="Zone",
                 value=init_zone_id,
                 on_change=_on_zone_change,
             ).classes("w-full")
@@ -348,7 +361,6 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
         # -- docker sub-fields ----------------------------------------------
         docker_fields = ui.column().classes("w-full gap-2 pl-4 border-l-2 border-teal-300")
         with docker_fields:
-            ui.label("Container").classes("text-caption text-grey-8")
             container_names = list(docker_by_container.keys())
             init_cname = (
                 init_container_name
@@ -411,7 +423,6 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
         # -- tailscale sub-fields -------------------------------------------
         ts_fields = ui.column().classes("w-full gap-2 pl-4 border-l-2 border-green-300")
         with ts_fields:
-            ui.label("Tailscale Device").classes("text-caption text-grey-8")
             if not ts_options:
                 ui.label(
                     "No Tailscale devices found."
@@ -440,7 +451,6 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
         # -- custom sub-fields ----------------------------------------------
         custom_fields = ui.column().classes("w-full gap-2 pl-4 border-l-2 border-grey-400")
         with custom_fields:
-            ui.label("Host:Port").classes("text-caption text-grey-8")
             custom_input = ui.input(
                 label="Host:Port (e.g. 192.168.1.10:8080)",
                 value=init_custom,
@@ -466,7 +476,7 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
         source_ip_radio = ui.radio(
             options=source_ip_opts,
             value=init_source_ip,
-        )
+        ).props("html")
         if not ts_ip_available:
             ui.label("Tailscale source IP not available — set TS_HOST_NAME env var to enable.").classes(
                 "text-grey text-sm"
@@ -476,35 +486,28 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
 
         # -- SSL radio (dynamic) --------------------------------------------
         ui.label("SSL Method").classes("text-subtitle2 text-weight-bold")
-        ssl_note = ui.label("").classes("text-grey text-sm")
-        ssl_note.set_visibility(False)
 
-        # Clamp init_ssl to methods allowed for init_source_ip
-        allowed_ssl = proxy_service.get_available_ssl_methods(init_source_ip)
-        if init_ssl not in allowed_ssl:
-            init_ssl = SSLMethod.NONE
+        # Clamp init_ssl: HTTP01 is incompatible with Tailscale source IP.
+        if init_source_ip == SourceIPType.TAILSCALE and init_ssl == SSLMethod.HTTP01:
+            init_ssl = SSLMethod.DNS01
 
+        # All three options are always shown; HTTP Request is disabled (greyed-out)
+        # when Tailscale IP is the source — it requires public port-80 reachability.
         ssl_radio = ui.radio(
-            options=_ssl_options(init_source_ip),
+            options={m: _SSL_LABELS[m] for m in (SSLMethod.DNS01, SSLMethod.HTTP01, SSLMethod.NONE)},
             value=init_ssl,
         )
+        ssl_radio.props(f":options='{_ssl_quasar_options(init_source_ip == SourceIPType.TAILSCALE)}'")
         ssl_err = ui.label("").classes("text-negative text-sm")
         ssl_err.set_visibility(False)
 
         def _on_source_ip_change() -> None:
-            """Update SSL options and show/hide HTTP-01 note."""
+            """Disable HTTP Request in SSL section when Tailscale IP is selected."""
             sip: SourceIPType = source_ip_radio.value
-            opts = _ssl_options(sip)
-            current_ssl: SSLMethod = ssl_radio.value
-            new_ssl = current_ssl if current_ssl in opts else SSLMethod.NONE
-            ssl_radio.set_options(opts, value=new_ssl)
-            if sip == SourceIPType.TAILSCALE and SSLMethod.HTTP01 not in opts:
-                ssl_note.text = (
-                    "HTTPS – Auto (HTTP Challenge) is not available for Tailscale source IP (requires public port 80)."
-                )
-                ssl_note.set_visibility(True)
-            else:
-                ssl_note.set_visibility(False)
+            is_ts = sip == SourceIPType.TAILSCALE
+            ssl_radio.props(f":options='{_ssl_quasar_options(is_ts)}'")
+            if is_ts and ssl_radio.value == SSLMethod.HTTP01:
+                ssl_radio.set_value(SSLMethod.DNS01)
 
         source_ip_radio.on_value_change(lambda _e: _on_source_ip_change())
 
