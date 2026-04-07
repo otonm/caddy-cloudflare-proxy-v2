@@ -4,8 +4,11 @@ Serves two purposes:
 1. Listing all tailnet devices for the target dropdown (target_type = TAILSCALE).
 2. Resolving the Caddy host's Tailscale IP for source_ip_type = TAILSCALE A records.
 
-Host IP detection requires TS_HOST_NAME to be set — matched against the Tailscale
-API device list.  See get_caddy_host_ip for details.
+Host IP detection priority (see get_caddy_host_ip):
+  1. TS_HOST_NAME env var — explicit config, matched against the Tailscale API device list.
+  2. Docker host name — reads the host machine's hostname via the mounted Docker socket
+     (docker info → Name), then matches it against the device list.  Requires no extra
+     mounts or configuration beyond the Docker socket already used for container discovery.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ from typing import Any
 import httpx
 
 from core.config import settings
+from core.docker_client import get_docker_host_name
 from core.models import TailscaleDevice
 
 logger = logging.getLogger(__name__)
@@ -89,20 +93,24 @@ async def list_devices() -> list[TailscaleDevice]:
 async def get_caddy_host_ip() -> str | None:
     """Return the Tailscale IPv4 address of the machine running Caddy.
 
-    Matches TS_HOST_NAME against the Tailscale API device list.
+    Detection priority:
+    1. TS_HOST_NAME env var — explicit config takes precedence.
+    2. Docker host name — reads the host machine's hostname via the mounted Docker
+       socket (docker info → Name) and matches it against the device list.
     Supports short hostname (e.g. "my-server") and FQDN prefix matching.
-    Returns None if TS_HOST_NAME is not set or the hostname is not found.
+    Returns None if no hostname can be determined or it is not found in the tailnet.
     """
-    if not settings.ts_host_name:
-        logger.warning("TS_HOST_NAME is not set — Tailscale source IP detection disabled")
+    target = settings.ts_host_name or await get_docker_host_name()
+    if not target:
+        logger.warning("Could not determine Caddy host name — set TS_HOST_NAME or mount the Docker socket")
         return None
 
     devices = await list_devices()
-    target = settings.ts_host_name.lower()
+    target_lower = target.lower()
     for device in devices:
-        if device.hostname.lower() == target or device.name.lower().startswith(target + "."):
+        if device.hostname.lower() == target_lower or device.name.lower().startswith(target_lower + "."):
             logger.info(f"Resolved Caddy Tailscale IP: {device.hostname} → {device.ip}")
             return device.ip
 
-    logger.warning(f"TS_HOST_NAME={settings.ts_host_name!r} not found in tailnet devices")
+    logger.warning(f"Host {target!r} not found in tailnet devices")
     return None

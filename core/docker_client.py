@@ -59,6 +59,27 @@ def _container_to_info(container: docker.models.containers.Container) -> Contain
     )
 
 
+def _get_host_name_sync() -> str | None:
+    """Return the Docker host's hostname from the daemon info endpoint."""
+    info: dict[str, Any] = _get_client().info()  # docker-py returns untyped dict, Any is justified
+    return info.get("Name")  # type: ignore[return-value]
+
+
+async def get_docker_host_name() -> str | None:
+    """Return the hostname of the Docker host machine.
+
+    Uses the already-mounted Docker socket — no extra configuration needed.
+    The daemon's /info endpoint returns the host's Name, not the container's.
+    Returns None if Docker is unreachable or the Name field is absent.
+    """
+    loop = asyncio.get_running_loop()
+    try:
+        return await loop.run_in_executor(None, _get_host_name_sync)
+    except Exception as exc:
+        logger.warning(f"Could not read Docker host name: {exc}")
+        return None
+
+
 async def list_running_containers() -> list[ContainerInfo]:
     """Return all currently running Docker containers with their exposed ports.
 
