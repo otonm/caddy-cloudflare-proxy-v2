@@ -44,9 +44,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _SSL_LABELS: dict[SSLMethod, str] = {
-    SSLMethod.NONE: "None",
-    SSLMethod.HTTP01: "HTTP-01",
-    SSLMethod.DNS01: "DNS-01",
+    SSLMethod.NONE: "No SSL",
+    SSLMethod.HTTP01: "HTTPS – Auto (HTTP Challenge)",
+    SSLMethod.DNS01: "HTTPS – DNS (Cloudflare)",
 }
 
 _TARGET_LABELS: dict[TargetType, str] = {
@@ -257,6 +257,15 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
         ui.label("Cloudflare Zone").classes("text-subtitle2 text-weight-bold")
         selected_zone_id: str | None = init_zone_id
 
+        # Lookup map used by the zone-change handler and domain suffix label.
+        zone_name_by_id: dict[str, str] = {z.id: z.name for z in zones}
+
+        def _zone_suffix(zone_id: str | None) -> str:
+            """Return the dot-prefixed zone name for the domain suffix hint."""
+            if zone_id and zone_id in zone_name_by_id:
+                return f".{zone_name_by_id[zone_id]}"
+            return ""
+
         if zones_failed:
             ui.label("⚠ Could not load zones — saving will be disabled.").classes("text-negative text-sm")
         elif not zones:
@@ -270,6 +279,9 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
             def _on_zone_change(e: Any) -> None:  # noqa: ANN401
                 nonlocal selected_zone_id
                 selected_zone_id = e.value
+                # Update the domain suffix hint whenever the zone changes.
+                if not is_edit:
+                    zone_suffix_label.set_text(_zone_suffix(e.value))
 
             ui.select(
                 options=zone_options,
@@ -294,10 +306,15 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
             ui.label(existing_entry.domain).classes("text-body1 font-mono")
             ui.label("Domain cannot be changed after creation.").classes("text-grey text-sm")
         else:
-            domain_input = ui.input(
-                label="Domain (e.g. app.example.com)",
-                placeholder="app.example.com",
-            ).classes("w-full")
+            with ui.row().classes("items-center gap-2 w-full"):
+                domain_input = ui.input(
+                    label="Subdomain",
+                    placeholder="app",
+                ).classes("flex-1")
+                # Zone suffix hint — updates when the zone dropdown changes.
+                zone_suffix_label = ui.label(_zone_suffix(init_zone_id)).classes(
+                    "text-body1 text-grey-7 whitespace-nowrap"
+                )
 
             # Jump-to-existing helper
             if existing_entries:
@@ -350,11 +367,19 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
                 # post-construction method). The closure captures container_select and
                 # port_select by reference — both are resolved at call time.
                 def _on_container_change(_e: Any = None) -> None:  # noqa: ANN401
-                    """Update port dropdown when container selection changes."""
+                    """Update port dropdown when container selection changes.
+
+                    Disables the dropdown when only one port is available — there is
+                    nothing to choose, and leaving it enabled implies user action is needed.
+                    """
                     assert container_select is not None
                     assert port_select is not None
                     ports = docker_by_container.get(container_select.value or "", [])
                     port_select.set_options(ports, value=ports[0] if ports else None)
+                    if len(ports) > 1:
+                        port_select.enable()
+                    else:
+                        port_select.disable()
 
                 container_select = ui.select(
                     options=container_names,
@@ -372,6 +397,9 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
                     label="Port",
                     value=init_cport,
                 ).classes("w-full")
+                # Disable immediately when the initial container has only one port.
+                if len(init_ports) <= 1:
+                    port_select.disable()
 
             container_err = ui.label("").classes("text-negative text-sm")
             container_err.set_visibility(False)
@@ -469,7 +497,9 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
             new_ssl = current_ssl if current_ssl in opts else SSLMethod.NONE
             ssl_radio.set_options(opts, value=new_ssl)
             if sip == SourceIPType.TAILSCALE and SSLMethod.HTTP01 not in opts:
-                ssl_note.text = "HTTP-01 is not available for Tailscale source IP (requires public port 80)."
+                ssl_note.text = (
+                    "HTTPS – Auto (HTTP Challenge) is not available for Tailscale source IP (requires public port 80)."
+                )
                 ssl_note.set_visibility(True)
             else:
                 ssl_note.set_visibility(False)
@@ -568,8 +598,9 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
             if not is_edit:
                 assert domain_input is not None  # noqa: S101
                 d = domain_input.value.strip()
-                if not d or "." not in d:
-                    errors.append(("domain", "Enter a valid domain (e.g. app.example.com)"))
+                # The full domain is subdomain + zone suffix; the subdomain alone need not contain a dot.
+                if not d:
+                    errors.append(("domain", "Enter a subdomain (e.g. app)"))
 
             if selected_zone_id is None:
                 errors.append(("zone", "Select a Cloudflare zone"))
@@ -633,7 +664,10 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
                     entry_uuid = existing_entry.id
                 else:
                     assert domain_input is not None  # noqa: S101
-                    domain = domain_input.value.strip().lower()
+                    subdomain = domain_input.value.strip().lower()
+                    zone_name = zone_name_by_id.get(selected_zone_id or "", "")
+                    # Combine subdomain with the selected zone to form the full FQDN.
+                    domain = f"{subdomain}.{zone_name}" if zone_name else subdomain
                     created_at = datetime.now(UTC)
                     entry_uuid = uuid.uuid4()
 

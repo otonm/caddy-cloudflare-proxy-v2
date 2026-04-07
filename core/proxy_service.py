@@ -28,6 +28,7 @@ from core.cloudflare_client import (
     list_zones,
     upsert_a_record,
 )
+from core.config import settings
 from core.docker_client import list_running_containers
 from core.models import CloudflareZone, ProxyEntry, ProxyTarget, SourceIPType, SSLMethod, TargetType
 from core.tailscale_client import get_caddy_host_ip, list_devices
@@ -324,10 +325,15 @@ async def get_available_targets() -> list[ProxyTarget]:
         logger.warning(f"Docker target discovery failed: {docker_result}")
 
     if isinstance(ts_result, list):
+        tailnet_suffix = f".{settings.ts_tailnet.lower()}"
         for device in ts_result:
+            # Use the canonical MagicDNS name (device.name) but strip the tailnet
+            # suffix so users see "my-server" instead of "my-server.tail1234.ts.net".
+            raw_name = device.name.lower()
+            display_name = device.name[: -len(tailnet_suffix)] if raw_name.endswith(tailnet_suffix) else device.name
             targets.append(
                 ProxyTarget(
-                    label=f"{device.hostname} [{device.ip}] (Tailscale)",
+                    label=f"{display_name} [{device.ip}]",
                     value=device.hostname,  # UI must append ':port' before use
                     target_type=TargetType.TAILSCALE,
                 )

@@ -37,9 +37,9 @@ _SSL_COLORS: dict[SSLMethod, str] = {
     SSLMethod.DNS01: "purple",
 }
 _SSL_LABELS: dict[SSLMethod, str] = {
-    SSLMethod.NONE: "None",
-    SSLMethod.HTTP01: "HTTP-01",
-    SSLMethod.DNS01: "DNS-01",
+    SSLMethod.NONE: "No SSL",
+    SSLMethod.HTTP01: "HTTPS – Auto",
+    SSLMethod.DNS01: "HTTPS – DNS",
 }
 
 _TARGET_COLORS: dict[TargetType, str] = {
