@@ -124,17 +124,15 @@ async def _get_ip_from_local_socket(socket_path: str) -> str | None:
         if ip:
             logger.info(f"Resolved Caddy Tailscale IP via local socket {socket_path}: {ip}")
         else:
-            logger.debug(f"Local socket {socket_path} returned no IPv4 in TailscaleIPs: {ips}")
+            # Log response keys to help diagnose unexpected response shapes.
+            logger.warning(
+                f"Local socket {socket_path} returned no IPv4 — TailscaleIPs={ips!r}, response keys={list(data.keys())}"
+            )
         return ip
-    except httpx.HTTPError as exc:
-        logger.warning(f"Local socket request to {socket_path} failed: {exc}")
-        return None
-    except (ValueError, KeyError) as exc:
-        logger.warning(f"Could not parse local socket response from {socket_path}: {exc}")
-        return None
-    except OSError as exc:
-        # Covers permission denied and other socket-level errors.
-        logger.warning(f"Cannot access Tailscale socket {socket_path}: {exc}")
+    except Exception as exc:
+        # Broad catch: httpx errors, OSError (permission/connection), JSON parse errors, etc.
+        # All logged at WARNING so they are visible without DEBUG=true.
+        logger.warning(f"Tailscale socket {socket_path} failed ({type(exc).__name__}): {exc}")
         return None
 
 
