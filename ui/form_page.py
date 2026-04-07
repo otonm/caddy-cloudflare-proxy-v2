@@ -278,14 +278,16 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
                 on_change=_on_zone_change,
             ).classes("w-full")
 
-        zone_err = ui.label("").classes("text-negative text-sm").set_visibility(False)
+        zone_err = ui.label("").classes("text-negative text-sm")
+        zone_err.set_visibility(False)
 
         ui.separator()
 
         # -- domain section -------------------------------------------------
         ui.label("Domain").classes("text-subtitle2 text-weight-bold")
         domain_input: ui.input | None = None
-        domain_err = ui.label("").classes("text-negative text-sm").set_visibility(False)
+        domain_err = ui.label("").classes("text-negative text-sm")
+        domain_err.set_visibility(False)
 
         if is_edit and existing_entry:
             # Read-only in edit mode — domain changes are not supported in v1
@@ -343,10 +345,22 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
                 container_select: ui.select | None = None
                 port_select: ui.select | None = None
             else:
+                # Define callback before constructing container_select so it can be
+                # passed as on_change= (NiceGUI 3.x does not expose on_change as a
+                # post-construction method). The closure captures container_select and
+                # port_select by reference — both are resolved at call time.
+                def _on_container_change(_e: Any = None) -> None:  # noqa: ANN401
+                    """Update port dropdown when container selection changes."""
+                    assert container_select is not None
+                    assert port_select is not None
+                    ports = docker_by_container.get(container_select.value or "", [])
+                    port_select.set_options(ports, value=ports[0] if ports else None)
+
                 container_select = ui.select(
                     options=container_names,
                     label="Container",
                     value=init_cname or container_names[0],
+                    on_change=_on_container_change,
                 ).classes("w-full")
 
                 init_ports = docker_by_container.get(container_select.value, [])
@@ -359,17 +373,10 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
                     value=init_cport,
                 ).classes("w-full")
 
-                def _on_container_change(_e: Any = None) -> None:  # noqa: ANN401
-                    """Update port dropdown when container selection changes."""
-                    assert container_select is not None  # noqa: S101
-                    assert port_select is not None  # noqa: S101
-                    ports = docker_by_container.get(container_select.value or "", [])
-                    port_select.set_options(ports, value=ports[0] if ports else None)
-
-                container_select.on_change(_on_container_change)
-
-            container_err = ui.label("").classes("text-negative text-sm").set_visibility(False)
-            port_err = ui.label("").classes("text-negative text-sm").set_visibility(False)
+            container_err = ui.label("").classes("text-negative text-sm")
+            container_err.set_visibility(False)
+            port_err = ui.label("").classes("text-negative text-sm")
+            port_err.set_visibility(False)
 
         # -- tailscale sub-fields -------------------------------------------
         ts_fields = ui.column().classes("w-full gap-2 pl-4 border-l-2 border-green-300")
@@ -395,8 +402,10 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
                 value=init_ts_port or "443",
                 placeholder="443",
             ).classes("w-full")
-            ts_device_err = ui.label("").classes("text-negative text-sm").set_visibility(False)
-            ts_port_err = ui.label("").classes("text-negative text-sm").set_visibility(False)
+            ts_device_err = ui.label("").classes("text-negative text-sm")
+            ts_device_err.set_visibility(False)
+            ts_port_err = ui.label("").classes("text-negative text-sm")
+            ts_port_err.set_visibility(False)
 
         # -- custom sub-fields ----------------------------------------------
         custom_fields = ui.column().classes("w-full gap-2 pl-4 border-l-2 border-grey-400")
@@ -407,7 +416,8 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
                 value=init_custom,
                 placeholder="192.168.1.10:8080",
             ).classes("w-full")
-            custom_err = ui.label("").classes("text-negative text-sm").set_visibility(False)
+            custom_err = ui.label("").classes("text-negative text-sm")
+            custom_err.set_visibility(False)
 
         # Wire target type visibility
         def _update_target_visibility() -> None:
@@ -416,7 +426,7 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
             ts_fields.set_visibility(tt == TargetType.TAILSCALE)
             custom_fields.set_visibility(tt == TargetType.CUSTOM)
 
-        target_type_radio.on_change(lambda: _update_target_visibility())
+        target_type_radio.on_value_change(lambda _e: _update_target_visibility())
         _update_target_visibility()
 
         ui.separator()
@@ -436,7 +446,8 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
 
         # -- SSL radio (dynamic) --------------------------------------------
         ui.label("SSL Method").classes("text-subtitle2 text-weight-bold")
-        ssl_note = ui.label("").classes("text-grey text-sm").set_visibility(False)
+        ssl_note = ui.label("").classes("text-grey text-sm")
+        ssl_note.set_visibility(False)
 
         # Clamp init_ssl to methods allowed for init_source_ip
         allowed_ssl = proxy_service.get_available_ssl_methods(init_source_ip)
@@ -447,7 +458,8 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
             options=_ssl_options(init_source_ip),
             value=init_ssl,
         )
-        ssl_err = ui.label("").classes("text-negative text-sm").set_visibility(False)
+        ssl_err = ui.label("").classes("text-negative text-sm")
+        ssl_err.set_visibility(False)
 
         def _on_source_ip_change() -> None:
             """Update SSL options and show/hide HTTP-01 note."""
@@ -462,7 +474,7 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
             else:
                 ssl_note.set_visibility(False)
 
-        source_ip_radio.on_change(lambda: _on_source_ip_change())
+        source_ip_radio.on_value_change(lambda _e: _on_source_ip_change())
 
         ui.separator()
 
@@ -480,7 +492,8 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
         ui.separator()
 
         # ---- error / DomainExistsError display ----------------------------
-        domain_exists_card = ui.column().classes("w-full").set_visibility(False)
+        domain_exists_card = ui.column().classes("w-full")
+        domain_exists_card.set_visibility(False)
 
         # ---- action buttons -----------------------------------------------
         zones_ok = not zones_failed and bool(zones)
