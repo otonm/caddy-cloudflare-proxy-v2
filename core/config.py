@@ -45,8 +45,18 @@ class Settings(BaseSettings):
     acme_email: str
 
     # Optional — source IP resolution
+    # Empty string is treated as unset so that `TS_HOST_NAME=` in an env file
+    # doesn't accidentally suppress the local-socket auto-detection path.
     ts_host_name: str | None = None
     public_ip: str | None = None
+
+    @field_validator("ts_host_name", "public_ip", mode="before")
+    @classmethod
+    def empty_str_to_none(cls, v: object) -> object:
+        """Convert empty string env vars to None, preserving Optional semantics."""
+        if isinstance(v, str) and v.strip() == "":
+            return None
+        return v
 
     # Optional — logging verbosity
     debug: bool = False

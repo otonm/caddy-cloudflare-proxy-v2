@@ -122,7 +122,7 @@ async def _get_ip_from_local_socket(socket_path: str) -> str | None:
         ips: list[str] = data.get("TailscaleIPs") or []
         ip = _first_ipv4(ips)
         if ip:
-            logger.debug(f"Resolved Caddy Tailscale IP via local socket {socket_path}: {ip}")
+            logger.info(f"Resolved Caddy Tailscale IP via local socket {socket_path}: {ip}")
         else:
             logger.debug(f"Local socket {socket_path} returned no IPv4 in TailscaleIPs: {ips}")
         return ip
@@ -149,7 +149,7 @@ async def get_caddy_host_ip() -> str | None:
        first IPv4 reported by the daemon for this machine.
     3. Returns None if all methods fail, logging a warning.
     """
-    if settings.ts_host_name is not None:
+    if settings.ts_host_name:  # empty string treated as unset — fall through to socket
         # Explicit config: match against the cloud API device list.
         devices = await list_devices()
         target = settings.ts_host_name.lower()
