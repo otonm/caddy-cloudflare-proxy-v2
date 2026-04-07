@@ -7,3 +7,6 @@ data/
 *.log
 dist/
 .ruff_cache/
+memory/
+.claude/
+uv.lock

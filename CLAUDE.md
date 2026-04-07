@@ -104,15 +104,18 @@ diagnostics. Every module gets its own logger:
 import logging
 logger = logging.getLogger(__name__)
 ```
+
 Use levels correctly:
 - `DEBUG` — internal state, variable values, step-by-step flow. Only emitted when `DEBUG=true`.
 - `INFO` — normal lifecycle events (app started, proxy created, DNS record updated).
 - `WARNING` — recoverable issues or unexpected but handled conditions (container has no ports, record already up to date).
 - `ERROR` — failures that affect the user or require action (API call failed, Caddy unreachable).
 
+Always use f-strings to construct the log messages.
+
 Never log secret values at any level. Log the intent and outcome, not the credential.
-Good: `logger.info("Updating Cloudflare A record for %s", domain)`
-Bad: `logger.debug("Using token %s", token)`
+Good: `logger.info(f"Updating Cloudflare A record for {domain}")`
+Bad: `logger.debug(f"Using token {token}")`
 
 ### Comments
 

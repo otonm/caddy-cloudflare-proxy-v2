@@ -1,3 +1,85 @@
+"""Application settings loaded from environment variables.
+
+This module is the single source of truth for all configuration.
+Import `settings` from here; never instantiate Settings elsewhere.
+Infrastructure constants (DATA_DIR, CADDY_ADMIN_URL, APP_PORT) are also
+defined here as module-level constants — they are not configurable via env.
+"""
+
 from __future__ import annotations
 
-"""Settings and logging configuration — implemented in Plan 02."""
+import logging
+import pathlib
+from typing import Final
+
+from pydantic import SecretStr, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
+
+# Infrastructure constants — fixed by the Docker/compose setup.
+# Volume-mount /data to persist config across container restarts.
+CADDY_ADMIN_URL: Final[str] = "http://caddy:2019"
+DATA_DIR: Final[pathlib.Path] = pathlib.Path("/data")
+APP_PORT: Final[int] = 8080
+CONFIG_FILE: Final[pathlib.Path] = DATA_DIR / "proxy_config.json"
+
+
+class Settings(BaseSettings):
+    """All application settings sourced from environment variables.
+
+    Do not add infrastructure constants here — see module-level Finals above.
+    """
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+    )
+
+    # Required secrets — never log these
+    cf_api_token: SecretStr
+    ts_api_key: SecretStr
+
+    # Required plain strings
+    ts_tailnet: str
+    acme_email: str
+
+    # Optional — source IP resolution
+    ts_host_name: str | None = None
+    public_ip: str | None = None
+
+    # Optional — logging verbosity
+    debug: bool = False
+
+    @field_validator("acme_email")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        """Basic format check — avoid adding email-validator as a dependency."""
+        if "@" not in v or "." not in v.split("@")[-1]:
+            raise ValueError(f"Invalid ACME email address: {v!r}")
+        return v
+
+
+def configure_logging(debug: bool = False) -> None:
+    """Configure root logger and silence noisy third-party loggers.
+
+    Must be called once at application startup before any I/O begins.
+    Does NOT silence the application's own loggers (core.*, ui.*).
+    """
+    level = logging.DEBUG if debug else logging.INFO
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)-8s %(name)s — %(message)s"))
+    root = logging.getLogger()
+    root.setLevel(level)
+    root.handlers.clear()
+    root.addHandler(handler)
+
+    # Silence noisy third-party loggers regardless of DEBUG flag
+    for name in ("httpx", "httpcore", "docker", "uvicorn.access"):
+        logging.getLogger(name).setLevel(logging.WARNING)
+    logging.getLogger("nicegui").setLevel(logging.INFO)
+
+
+# Module-level singleton — import this everywhere.
+# Instantiated once; any ValidationError here means misconfigured environment.
+settings: Settings = Settings()
