@@ -35,6 +35,7 @@ from core.models import (
     TargetType,
 )
 from core.store import DomainExistsError
+from ui.theme import apply_theme
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +133,7 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
     This is a single async function so the UI builds synchronously after the
     initial data load; NiceGUI sees a single coherent page tree.
     """
+    apply_theme()
     is_edit = entry_id is not None
 
     # ---- header -----------------------------------------------------------
@@ -572,7 +574,7 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
 
         def _show_domain_exists_warning(domain: str, existing_id: uuid.UUID) -> None:
             domain_exists_card.clear()
-            with domain_exists_card, ui.card().classes("w-full bg-orange-50 border border-orange-300 p-4"):
+            with domain_exists_card, ui.card().classes("w-full warning-card p-4"):
                 with ui.row().classes("items-center gap-2"):
                     ui.icon("warning", color="orange")
                     ui.label(f"Domain '{domain}' already has a proxy entry.").classes("text-weight-bold")

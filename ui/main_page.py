@@ -15,6 +15,7 @@ from nicegui import ui
 
 import core.proxy_service as proxy_service
 from core.models import ProxyEntry, SourceIPType, SSLMethod, TargetType
+from ui.theme import apply_theme
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,7 @@ _TARGET_LABELS: dict[TargetType, str] = {
 @ui.page("/")
 async def main_page() -> None:
     """Root page: entry list with edit and delete actions."""
+    apply_theme()
     entries: list[ProxyEntry] = []
 
     # ---- nested helpers ---------------------------------------------------
@@ -99,11 +101,11 @@ async def main_page() -> None:
             if not entries:
                 with ui.card().classes("w-full p-6"):
                     ui.label("No proxy entries yet.").classes("text-h6")
-                    ui.label("Click '+ Add Entry' to get started.").classes("text-grey")
+                    ui.label("Click '+ Add Entry' to get started.").classes("opacity-60")
                 return
 
             # Column header row
-            with ui.row().classes("w-full px-4 py-2 bg-grey-3 rounded-t items-center text-weight-bold"):
+            with ui.row().classes("w-full px-4 py-2 proxy-table-header rounded-t items-center text-weight-bold"):
                 ui.label("Domain").classes("flex-1")
                 ui.label("Target").classes("flex-1")
                 ui.label("Source IP").classes("w-28")
@@ -122,7 +124,7 @@ async def main_page() -> None:
         Lambdas inside close over this function's `entry` parameter, which is
         a distinct binding per call — no loop-closure gotcha.
         """
-        with ui.row().classes("w-full px-4 py-2 items-center border-b hover:bg-grey-1"):
+        with ui.row().classes("w-full px-4 py-2 items-center border-b proxy-table-row"):
             # Domain — clickable link that opens the proxied URL in a new tab
             with ui.element("div").classes("flex-1"):
                 ui.link(
