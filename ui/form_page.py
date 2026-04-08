@@ -34,6 +34,7 @@ from core.models import (
     SourceIPType,
     SSLMethod,
     TargetType,
+    UpstreamTLS,
 )
 from core.store import DomainExistsError
 from ui.theme import apply_theme
@@ -55,6 +56,12 @@ _TARGET_LABELS: dict[TargetType, str] = {
     TargetType.DOCKER: "Docker",
     TargetType.TAILSCALE: "Tailscale",
     TargetType.CUSTOM: "Custom",
+}
+
+_UPSTREAM_TLS_LABELS: dict[UpstreamTLS, str] = {
+    UpstreamTLS.PLAIN: "Plain HTTP",
+    UpstreamTLS.TLS: "HTTPS (verify cert)",
+    UpstreamTLS.TLS_SKIP_VERIFY: "HTTPS (ignore cert errors)",
 }
 
 
@@ -210,6 +217,7 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
     init_target_type: TargetType = existing_entry.target_type if existing_entry else TargetType.DOCKER
     init_source_ip: SourceIPType = existing_entry.source_ip_type if existing_entry else SourceIPType.PUBLIC
     init_ssl: SSLMethod = existing_entry.ssl_method if existing_entry else SSLMethod.DNS01
+    init_upstream_tls: UpstreamTLS = existing_entry.upstream_tls if existing_entry else UpstreamTLS.PLAIN
     init_notes: str = existing_entry.notes if existing_entry else ""
 
     # Parse target_value for sub-field pre-population
@@ -298,10 +306,17 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
 
             Strips the zone apex suffix from each FQDN so the dropdown shows only
             the subdomain portion (e.g. "app.example.com" → "app").
+            Excludes the zone apex itself and wildcard records (e.g. "*.example.com")
+            since the model does not support these and they would be invalid inputs.
             """
             apex = zone_name_by_id.get(zone_id or "", "")
             suffix = f".{apex}" if apex else ""
-            subs = sorted(n[: -len(suffix)] if suffix and n.endswith(suffix) else n for n in names)
+            subs = sorted(
+                stripped
+                for n in names
+                for stripped in [n[: -len(suffix)] if suffix and n.endswith(suffix) else n]
+                if stripped and stripped != apex and not stripped.startswith("*")
+            )
             return ["", *subs]
 
         if zones_failed:
@@ -530,6 +545,15 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
 
         ui.separator()
 
+        # -- upstream connection TLS ----------------------------------------
+        ui.label("Upstream Connection").classes("text-subtitle2 text-weight-bold")
+        upstream_tls_radio = ui.radio(
+            options={t: _UPSTREAM_TLS_LABELS[t] for t in UpstreamTLS},
+            value=init_upstream_tls,
+        )
+
+        ui.separator()
+
         # -- source IP radio ------------------------------------------------
         ui.label("Source IP").classes("text-subtitle2 text-weight-bold")
         source_ip_radio = ui.radio(
@@ -591,20 +615,21 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
 
         # ---- action buttons -----------------------------------------------
         zones_ok = not zones_failed and bool(zones)
-        save_btn = ui.button(
-            "Save Entry",
-            icon="save",
-        ).props("color=primary")
-        if not zones_ok:
-            save_btn.disable()
-            with save_btn:
-                ui.tooltip("Cannot save — no Cloudflare zones available.")
+        with ui.row().classes("gap-2"):
+            save_btn = ui.button(
+                "Save Entry",
+                icon="save",
+            ).props("color=primary")
+            if not zones_ok:
+                save_btn.disable()
+                with save_btn:
+                    ui.tooltip("Cannot save — no Cloudflare zones available.")
 
-        ui.button(
-            "Cancel",
-            icon="cancel",
-            on_click=lambda: ui.navigate.to("/"),
-        ).props("flat")
+            ui.button(
+                "Cancel",
+                icon="cancel",
+                on_click=lambda: ui.navigate.to("/"),
+            ).props("flat")
 
         # ---- validation helpers -------------------------------------------
 
@@ -743,6 +768,7 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
                     target_value=target_value,
                     source_ip_type=source_ip_radio.value,
                     ssl_method=ssl_radio.value,
+                    upstream_tls=upstream_tls_radio.value,
                     notes=notes_input.value.strip(),
                     created_at=created_at,
                 )

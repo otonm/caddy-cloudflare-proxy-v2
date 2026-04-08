@@ -36,6 +36,14 @@ class SSLMethod(StrEnum):
     DNS01 = "dns01"  # ACME DNS-01 challenge via Cloudflare (works behind NAT/Tailscale)
 
 
+class UpstreamTLS(StrEnum):
+    """How the reverse proxy connects to the upstream target."""
+
+    PLAIN = "plain"  # plain HTTP (default)
+    TLS = "tls"  # HTTPS to upstream, verify certificate
+    TLS_SKIP_VERIFY = "tls_skip_verify"  # HTTPS to upstream, ignore certificate errors
+
+
 class ProxyEntry(BaseModel):
     """A single reverse-proxy rule managed by this application.
 
@@ -50,6 +58,7 @@ class ProxyEntry(BaseModel):
     target_value: str  # always "host:port" format
     source_ip_type: SourceIPType
     ssl_method: SSLMethod
+    upstream_tls: UpstreamTLS = UpstreamTLS.PLAIN  # how to connect to the upstream target
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     notes: str = ""
 

@@ -53,3 +53,17 @@ jobs:
           file: Dockerfile.caddy
           push: ${{ github.event_name == 'push' }}
           tags: ${{ env.IMAGE_CADDY }}:latest
+
+      - name: Trigger Dockhand redeployment
+        if: github.event_name == 'push'
+        run: |
+          PAYLOAD='{}'
+          SIGNATURE="sha256=$(echo -n "$PAYLOAD" | \
+            openssl dgst -sha256 -hmac "${{ secrets.DOCKHAND_WEBHOOK_SECRET }}" | \
+            awk '{print $NF}')"
+
+          curl -sf -X POST \
+            "${{ secrets.DOCKHAND_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -H "X-Hub-Signature-256: $SIGNATURE" \
+            -d "$PAYLOAD"

@@ -271,7 +271,7 @@ async def get_entry_by_id(entry_id: uuid.UUID) -> ProxyEntry | None:
 
 1. `uv run python main.py` — must start, logging must show startup messages.
 2. Open `http://localhost:8080/` — main page renders.
-3. Click "+ Add Entry" — form renders with all fields.
+3. Click "Add Entry" — form renders with all fields.
 4. Select Docker → container dropdown loads (or shows "unavailable" gracefully).
 5. Select TAILSCALE source IP → HTTP-01 SSL option becomes disabled.
 6. Submit with an invalid domain → inline error shown, no API call made.

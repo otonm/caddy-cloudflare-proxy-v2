@@ -32,7 +32,6 @@ from core.cloudflare_client import (
     list_zones,
     upsert_a_record,
 )
-from core.config import settings
 from core.docker_client import list_running_containers
 from core.models import CfARecord, CloudflareZone, ProxyEntry, ProxyTarget, SourceIPType, SSLMethod, TargetType
 from core.tailscale_client import get_caddy_host_ip, list_devices
@@ -367,7 +366,13 @@ async def get_unmanaged_records() -> list[tuple[CloudflareZone, list[CfARecord]]
         except CloudflareError as exc:
             logger.warning(f"Could not fetch A records for zone {zone.name}: {exc}")
             records = []
-        unmanaged = [r for r in records if r.name not in managed_domains]
+        unmanaged = [
+            r
+            for r in records
+            if r.name not in managed_domains
+            and r.name != zone.name  # exclude zone apex (e.g. "mahnic.org")
+            and not r.name.startswith("*")  # exclude wildcard records
+        ]
         return zone, unmanaged
 
     results = await asyncio.gather(*(_fetch_zone(z) for z in zones))
@@ -418,12 +423,11 @@ async def get_available_targets() -> list[ProxyTarget]:
         logger.warning(f"Docker target discovery failed: {docker_result}")
 
     if isinstance(ts_result, list):
-        tailnet_suffix = f".{settings.ts_tailnet.lower()}"
         for device in ts_result:
-            # Use the canonical MagicDNS name (device.name) but strip the tailnet
-            # suffix so users see "my-server" instead of "my-server.tail1234.ts.net".
-            raw_name = device.name.lower()
-            display_name = device.name[: -len(tailnet_suffix)] if raw_name.endswith(tailnet_suffix) else device.name
+            # The first label of the MagicDNS FQDN (device.name) is the Tailscale
+            # node name — reliable regardless of TS_TAILNET format. device.hostname
+            # is the OS hostname and can differ from the node name set in the admin console.
+            display_name = device.name.split(".")[0]
             targets.append(
                 ProxyTarget(
                     label=f"{display_name} [{device.ip}]",
@@ -441,8 +445,9 @@ async def get_tailscale_ip_to_label() -> dict[str, str]:
     """Return {device_ip: display_name} for all Tailscale devices.
 
     Used by the main page to resolve stored IP-based target_values back to
-    human-readable device names. Strips the tailnet suffix from device names,
-    matching the behaviour in get_available_targets().
+    human-readable device names. Uses the first label of the MagicDNS FQDN
+    (device.name) as the display name — this is the Tailscale node name and
+    is reliable regardless of TS_TAILNET format.
     Returns an empty dict if Tailscale is unavailable or unconfigured.
     """
     try:
@@ -450,13 +455,7 @@ async def get_tailscale_ip_to_label() -> dict[str, str]:
     except Exception as exc:
         logger.warning(f"get_tailscale_ip_to_label: failed to list devices: {exc}")
         return {}
-    tailnet_suffix = f".{settings.ts_tailnet.lower()}"
-    result: dict[str, str] = {}
-    for device in devices:
-        raw_name = device.name.lower()
-        display_name = device.name[: -len(tailnet_suffix)] if raw_name.endswith(tailnet_suffix) else device.name
-        result[device.ip] = display_name
-    return result
+    return {device.ip: device.name.split(".")[0] for device in devices}
 
 
 def get_available_ssl_methods(source_ip_type: SourceIPType) -> list[SSLMethod]:

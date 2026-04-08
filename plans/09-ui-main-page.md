@@ -154,5 +154,5 @@ ui.button(icon="edit", color="primary", on_click=lambda e=entry: ui.navigate.to(
 3. Delete flow: dialog appears → Cancel → entry stays; Confirm → entry removed,
    `ui.notify` shown, table refreshed.
 4. "Edit" button navigates to `/entry/{id}`.
-5. "+ Add Entry" navigates to `/entry/new`.
+5. "Add Entry" navigates to `/entry/new`.
 6. `uv run ruff check ui/main_page.py --fix` — must pass clean.

@@ -11,12 +11,14 @@ perfectly in sync with the store — no incremental patch logic needed.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import ssl as _ssl
 
 import httpx
 
 from core.config import CADDY_ADMIN_URL, settings
-from core.models import ProxyEntry, SSLMethod
+from core.models import ProxyEntry, SSLMethod, UpstreamTLS
 
 logger = logging.getLogger(__name__)
 
@@ -40,37 +42,37 @@ async def health_check() -> bool:
 
 
 async def check_cert_ready(domain: str) -> bool:
-    """Return True when the domain's TLS cert is valid; False when it is pending/invalid.
+    """Return True when Caddy has a valid TLS cert for the domain; False otherwise.
 
-    Makes a HEAD request over HTTPS with certificate verification enabled.
-    Returns True on any HTTP response (cert is valid and trusted).
-    Returns False only on SSL certificate verification errors (cert pending or invalid).
-    Fail-safe: returns True for all other errors (connectivity failures, DNS errors,
-    timeouts) to avoid perpetual spinners for unreachable or firewalled domains.
+    Connects directly to caddy:443 on the internal Docker network with SNI set
+    to the domain name. This bypasses external DNS routing and firewalls — the
+    check is purely about whether Caddy has provisioned the cert yet.
+
+    Returns True:  TLS handshake succeeded → Caddy is serving a trusted cert.
+    Returns False: Any SSL error → cert not yet provisioned or still pending.
+    Returns False: Connection refused / OS error → Caddy HTTPS server not yet
+                   started for this domain (cert acquisition still in progress).
+    Returns False: Timeout → Caddy unreachable on internal network (not started).
     """
-    import ssl as _ssl  # stdlib — imported locally to keep module-level imports minimal
-
-    url = f"https://{domain}"
-    timeout = httpx.Timeout(connect=5.0, read=3.0, write=5.0, pool=5.0)
-    async with httpx.AsyncClient(timeout=timeout, verify=True, follow_redirects=True) as client:
-        try:
-            await client.head(url)
-            return True
-        except httpx.ConnectError as exc:
-            # httpx wraps SSL handshake failures as ConnectError; inspect the cause.
-            cause = exc.__context__ or exc.__cause__
-            if isinstance(cause, _ssl.SSLCertVerificationError):
-                logger.debug(f"check_cert_ready: cert not yet valid for {domain}")
-                return False
-            # Network-level error (firewall, DNS, connection refused) — fail-safe.
-            logger.debug(f"check_cert_ready: ConnectError (non-SSL) for {domain} — treating as ready")
-            return True
-        except (httpx.TimeoutException, httpx.RemoteProtocolError):
-            logger.debug(f"check_cert_ready: timeout/protocol error for {domain} — treating as ready")
-            return True
-        except Exception as exc:
-            logger.debug(f"check_cert_ready: unexpected error for {domain}: {exc} — treating as ready")
-            return True
+    ssl_ctx = _ssl.create_default_context()
+    try:
+        _, writer = await asyncio.wait_for(
+            asyncio.open_connection("caddy", 443, ssl=ssl_ctx, server_hostname=domain),
+            timeout=10.0,
+        )
+        writer.close()
+        await writer.wait_closed()
+        logger.debug(f"check_cert_ready: cert valid for {domain}")
+        return True
+    except _ssl.SSLError:
+        logger.debug(f"check_cert_ready: cert not yet valid for {domain}")
+        return False
+    except (TimeoutError, OSError) as exc:
+        logger.debug(f"check_cert_ready: HTTPS not ready for {domain}: {exc}")
+        return False
+    except Exception as exc:
+        logger.debug(f"check_cert_ready: unexpected error for {domain}: {exc}")
+        return False
 
 
 def _build_config(
@@ -99,15 +101,21 @@ def _build_config(
     has_http01 = False
 
     for entry in entries:
+        # Build the reverse_proxy handler; add a transport block when the
+        # upstream connection should use TLS (verified or skip-verify).
+        reverse_proxy_handler: dict = {
+            "handler": "reverse_proxy",
+            "upstreams": [{"dial": entry.target_value}],
+        }
+        if entry.upstream_tls == UpstreamTLS.TLS:
+            reverse_proxy_handler["transport"] = {"protocol": "http", "tls": {}}
+        elif entry.upstream_tls == UpstreamTLS.TLS_SKIP_VERIFY:
+            reverse_proxy_handler["transport"] = {"protocol": "http", "tls": {"insecure_skip_verify": True}}
+
         proxy_route: dict = {
             "@id": f"entry-{entry.id}",
             "match": [{"host": [entry.domain]}],
-            "handle": [
-                {
-                    "handler": "reverse_proxy",
-                    "upstreams": [{"dial": entry.target_value}],
-                }
-            ],
+            "handle": [reverse_proxy_handler],
         }
         redirect_route: dict = {
             "match": [{"host": [entry.domain]}],

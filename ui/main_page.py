@@ -206,14 +206,19 @@ async def main_page() -> None:
             if entry.ssl_method != SSLMethod.NONE:
 
                 async def _update_ssl_cell(e: ProxyEntry = entry, cell: ui.element = ssl_cell) -> None:
-                    ready = await proxy_service.check_cert_ready(e.domain)
-                    if ready:
-                        cell.clear()
-                        with cell:
-                            ui.chip(
-                                _SSL_LABELS[e.ssl_method],
-                                color=_SSL_COLORS[e.ssl_method],
-                            ).props("dense")
+                    # Poll until Caddy has a valid cert; NiceGUI cancels this task
+                    # automatically when the client disconnects from the page.
+                    while True:
+                        ready = await proxy_service.check_cert_ready(e.domain)
+                        if ready:
+                            cell.clear()
+                            with cell:
+                                ui.chip(
+                                    _SSL_LABELS[e.ssl_method],
+                                    color=_SSL_COLORS[e.ssl_method],
+                                ).props("dense")
+                            return
+                        await asyncio.sleep(30)
 
                 asyncio.create_task(_update_ssl_cell())
 
@@ -322,6 +327,6 @@ async def main_page() -> None:
 
     ui.separator()
 
-    content = ui.column().classes("w-full p-4 gap-0")
+    content = ui.column().classes("p-4 gap-0").style("width: 90%; margin: 0 auto;")
 
     asyncio.create_task(load_data())
