@@ -15,12 +15,14 @@ All three steps are wrapped in startup(), which main.py calls via on_startup.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
 import uuid
 from typing import Final
 
 import core.store as store
 from core.caddy_client import CaddyError, apply_config, health_check
+from core.caddy_client import check_cert_ready as _caddy_check_cert_ready
 from core.cloudflare_client import (
     CloudflareError,
     delete_a_record,
@@ -137,6 +139,44 @@ async def _wait_for_caddy_and_sync() -> None:
     logger.info("Caddy config synchronized after delayed startup")
 
 
+async def _migrate_tailscale_targets_to_ip() -> None:
+    """Convert stored Tailscale hostname-based targets to IP addresses.
+
+    Entries created before the hostname→IP change store device.hostname as the
+    host portion of target_value. This migration runs at startup to update them to IPs.
+    Idempotent: entries already storing a valid IP address are skipped.
+    """
+    entries = await store.list_entries()
+    ts_entries = [e for e in entries if e.target_type == TargetType.TAILSCALE]
+    if not ts_entries:
+        return
+
+    devices = await list_devices()
+    hostname_to_ip: dict[str, str] = {d.hostname.lower(): d.ip for d in devices}
+
+    migrated = 0
+    for entry in ts_entries:
+        host, _, port = entry.target_value.partition(":")
+        try:
+            ipaddress.ip_address(host)
+            continue  # already an IP — nothing to migrate
+        except ValueError:
+            pass
+        ip = hostname_to_ip.get(host.lower())
+        if ip is None:
+            logger.warning(
+                f"Cannot migrate Tailscale target for {entry.domain}: hostname {host!r} not found in tailnet — skipping"
+            )
+            continue
+        updated = entry.model_copy(update={"target_value": f"{ip}:{port}" if port else ip})
+        await store.update_entry(updated)
+        logger.info(f"Migrated Tailscale target for {entry.domain}: {host} → {ip}")
+        migrated += 1
+
+    if migrated:
+        logger.info(f"Migrated {migrated} Tailscale entries from hostname to IP")
+
+
 async def startup() -> None:
     """Full startup sequence called from main.py via app.on_startup.
 
@@ -145,6 +185,7 @@ async def startup() -> None:
     connects — the app starts and remains usable while Caddy is catching up.
     """
     await initialize()
+    await _migrate_tailscale_targets_to_ip()
 
     healthy = await health_check()
     if not healthy:
@@ -386,7 +427,7 @@ async def get_available_targets() -> list[ProxyTarget]:
             targets.append(
                 ProxyTarget(
                     label=f"{display_name} [{device.ip}]",
-                    value=device.hostname,  # UI must append ':port' before use
+                    value=device.ip,  # store IP — MagicDNS not always active
                     target_type=TargetType.TAILSCALE,
                 )
             )
@@ -394,6 +435,28 @@ async def get_available_targets() -> list[ProxyTarget]:
         logger.warning(f"Tailscale target discovery failed: {ts_result}")
 
     return targets
+
+
+async def get_tailscale_ip_to_label() -> dict[str, str]:
+    """Return {device_ip: display_name} for all Tailscale devices.
+
+    Used by the main page to resolve stored IP-based target_values back to
+    human-readable device names. Strips the tailnet suffix from device names,
+    matching the behaviour in get_available_targets().
+    Returns an empty dict if Tailscale is unavailable or unconfigured.
+    """
+    try:
+        devices = await list_devices()
+    except Exception as exc:
+        logger.warning(f"get_tailscale_ip_to_label: failed to list devices: {exc}")
+        return {}
+    tailnet_suffix = f".{settings.ts_tailnet.lower()}"
+    result: dict[str, str] = {}
+    for device in devices:
+        raw_name = device.name.lower()
+        display_name = device.name[: -len(tailnet_suffix)] if raw_name.endswith(tailnet_suffix) else device.name
+        result[device.ip] = display_name
+    return result
 
 
 def get_available_ssl_methods(source_ip_type: SourceIPType) -> list[SSLMethod]:
@@ -426,3 +489,12 @@ def get_tailscale_ip() -> str | None:
 async def get_entry_by_id(entry_id: uuid.UUID) -> ProxyEntry | None:
     """Return a single proxy entry by ID, or None if not found."""
     return await store.get_entry(entry_id)
+
+
+async def check_cert_ready(domain: str) -> bool:
+    """Return True if the TLS certificate for domain is valid and trusted.
+
+    Delegates to the Caddy client's HTTPS probe. Fail-safe: returns True for
+    non-SSL errors so unreachable domains do not show a perpetual spinner.
+    """
+    return await _caddy_check_cert_ready(domain)

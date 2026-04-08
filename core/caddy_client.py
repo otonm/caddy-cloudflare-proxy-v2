@@ -39,6 +39,40 @@ async def health_check() -> bool:
             return False
 
 
+async def check_cert_ready(domain: str) -> bool:
+    """Return True when the domain's TLS cert is valid; False when it is pending/invalid.
+
+    Makes a HEAD request over HTTPS with certificate verification enabled.
+    Returns True on any HTTP response (cert is valid and trusted).
+    Returns False only on SSL certificate verification errors (cert pending or invalid).
+    Fail-safe: returns True for all other errors (connectivity failures, DNS errors,
+    timeouts) to avoid perpetual spinners for unreachable or firewalled domains.
+    """
+    import ssl as _ssl  # stdlib — imported locally to keep module-level imports minimal
+
+    url = f"https://{domain}"
+    timeout = httpx.Timeout(connect=5.0, read=3.0, write=5.0, pool=5.0)
+    async with httpx.AsyncClient(timeout=timeout, verify=True, follow_redirects=True) as client:
+        try:
+            await client.head(url)
+            return True
+        except httpx.ConnectError as exc:
+            # httpx wraps SSL handshake failures as ConnectError; inspect the cause.
+            cause = exc.__context__ or exc.__cause__
+            if isinstance(cause, _ssl.SSLCertVerificationError):
+                logger.debug(f"check_cert_ready: cert not yet valid for {domain}")
+                return False
+            # Network-level error (firewall, DNS, connection refused) — fail-safe.
+            logger.debug(f"check_cert_ready: ConnectError (non-SSL) for {domain} — treating as ready")
+            return True
+        except (httpx.TimeoutException, httpx.RemoteProtocolError):
+            logger.debug(f"check_cert_ready: timeout/protocol error for {domain} — treating as ready")
+            return True
+        except Exception as exc:
+            logger.debug(f"check_cert_ready: unexpected error for {domain}: {exc} — treating as ready")
+            return True
+
+
 def _build_config(
     entries: list[ProxyEntry],
     cf_token: str,

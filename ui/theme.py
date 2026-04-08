@@ -20,32 +20,36 @@ logger = logging.getLogger(__name__)
 # Uses Quasar's .body--dark selector for dark-mode variants so styles adapt
 # automatically when the user's OS preference changes.
 _THEME_CSS = """
-/* Header: indigo gradient (overrides Quasar's flat primary colour) */
+/* Header: flat primary colour with Material elevation shadow */
 .q-header {
-    background: linear-gradient(135deg, #4338ca 0%, #6366f1 100%);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    background: #6366f1;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3), 0 4px 8px rgba(0, 0, 0, 0.15);
 }
 
-/* Cards: subtle depth instead of Quasar's flat default */
+/* Cards: Material elevation level 1 with generous border-radius */
 .q-card {
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08);
-    border-radius: 12px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px 1px rgba(0, 0, 0, 0.15);
+    border-radius: 16px;
+    transition: background-color 0.2s ease;
 }
 .body--dark .q-card {
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 2px 6px 2px rgba(0, 0, 0, 0.35);
 }
 
-/* Table header row — replaces hardcoded bg-grey-3 */
+/* Table header row — tonal surface */
 .proxy-table-header {
-    background: rgba(99, 102, 241, 0.08);
+    background: rgba(99, 102, 241, 0.1);
     border-bottom: 1px solid rgba(99, 102, 241, 0.2);
 }
 .body--dark .proxy-table-header {
-    background: rgba(99, 102, 241, 0.15);
+    background: rgba(99, 102, 241, 0.18);
     border-bottom: 1px solid rgba(99, 102, 241, 0.3);
 }
 
-/* Table row hover — replaces hardcoded hover:bg-grey-1 */
+/* Table row hover with smooth transition */
+.proxy-table-row {
+    transition: background-color 0.2s ease;
+}
 .proxy-table-row:hover {
     background: rgba(0, 0, 0, 0.04);
 }
@@ -53,7 +57,7 @@ _THEME_CSS = """
     background: rgba(255, 255, 255, 0.06);
 }
 
-/* Warning card — replaces hardcoded bg-orange-50 border-orange-300 */
+/* Warning card */
 .warning-card {
     background: rgba(245, 158, 11, 0.08);
     border: 1px solid rgba(245, 158, 11, 0.4);
@@ -77,8 +81,8 @@ def apply_theme() -> None:
         primary="#6366f1",  # indigo-500
         secondary="#8b5cf6",  # violet-500
         accent="#ec4899",  # pink-500
-        dark="#1e1b4b",  # indigo-950 — dark surface colour
-        dark_page="#0f0e1a",  # near-black page background
+        dark="#2b2930",  # Material dark surface container (was indigo-950)
+        dark_page="#1c1b1f",  # Material dark background (was near-black)
         positive="#22c55e",  # green-500
         negative="#ef4444",  # red-500
         info="#3b82f6",  # blue-500

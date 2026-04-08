@@ -364,6 +364,27 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
                     with_input=True,
                     new_value_mode="add-unique",
                 ).classes("flex-1")
+
+                # Blur-preservation: new_value_mode="add-unique" only commits on Enter.
+                # Track the typed text and commit it on blur (click-away) as well.
+                _typed_subdomain: list[str] = [""]
+
+                def _on_subdomain_input(e: Any) -> None:  # noqa: ANN401
+                    _typed_subdomain[0] = e.args if isinstance(e.args, str) else ""
+
+                def _on_subdomain_blur() -> None:
+                    val = _typed_subdomain[0].strip()
+                    if val and domain_input is not None:
+                        opts = domain_input.options
+                        if val not in opts:
+                            domain_input.options = [*opts, val]
+                        domain_input.value = val
+                        domain_input.update()
+                    _typed_subdomain[0] = ""
+
+                domain_input.on("input-value", _on_subdomain_input)
+                domain_input.on("blur", lambda _e: _on_subdomain_blur())
+
                 # Zone suffix hint — updates when the zone dropdown changes.
                 zone_suffix_label = ui.label(_zone_suffix(init_zone_id)).classes(
                     "text-body1 text-grey-7 whitespace-nowrap"

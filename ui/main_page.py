@@ -66,6 +66,7 @@ async def main_page() -> None:
     apply_theme()
     entries: list[ProxyEntry] = []
     unmanaged: list[tuple[CloudflareZone, list[CfARecord]]] = []
+    ts_labels: dict[str, str] = {}
 
     # ---- nested helpers ---------------------------------------------------
     # All helpers close over `entries`, `unmanaged`, and `content`.  `content`
@@ -73,8 +74,8 @@ async def main_page() -> None:
     # after the page coroutine yields), `content` is fully initialised.
 
     async def load_data() -> None:
-        """Fetch entries and unmanaged records, then re-render."""
-        nonlocal entries, unmanaged
+        """Fetch entries, unmanaged records, and Tailscale IP labels, then re-render."""
+        nonlocal entries, unmanaged, ts_labels
         try:
             entries, unmanaged = await asyncio.gather(
                 proxy_service.list_entries(),
@@ -84,6 +85,12 @@ async def main_page() -> None:
             logger.error(f"Failed to load page data: {exc}")
             _render_error(str(exc))
             return
+        # Tailscale label map is best-effort — a failure must not block the page.
+        try:
+            ts_labels = await proxy_service.get_tailscale_ip_to_label()
+        except Exception as exc:
+            logger.warning(f"Could not load Tailscale IP labels: {exc}")
+            ts_labels = {}
         _render_all()
 
     def _render_error(message: str) -> None:
@@ -167,7 +174,13 @@ async def main_page() -> None:
                 )
 
             with ui.row().classes("flex-1 items-center gap-1"):
-                ui.label(entry.target_value).classes("text-body2")
+                if entry.target_type == TargetType.TAILSCALE:
+                    host, _, port = entry.target_value.partition(":")
+                    display_host = ts_labels.get(host, host)
+                    target_display = f"{display_host}:{port}" if port else display_host
+                    ui.label(target_display).classes("text-body2")
+                else:
+                    ui.label(entry.target_value).classes("text-body2")
                 ui.chip(
                     _TARGET_LABELS[entry.target_type],
                     color=_TARGET_COLORS[entry.target_type],
@@ -179,11 +192,30 @@ async def main_page() -> None:
                     color=_SOURCE_IP_COLORS[entry.source_ip_type],
                 ).props("dense")
 
-            with ui.element("div").classes("w-24"):
-                ui.chip(
-                    _SSL_LABELS[entry.ssl_method],
-                    color=_SSL_COLORS[entry.ssl_method],
-                ).props("dense")
+            ssl_cell = ui.element("div").classes("w-24")
+            with ssl_cell:
+                if entry.ssl_method == SSLMethod.NONE:
+                    ui.chip(
+                        _SSL_LABELS[entry.ssl_method],
+                        color=_SSL_COLORS[entry.ssl_method],
+                    ).props("dense")
+                else:
+                    # Show spinner until cert check resolves; replaced by chip if cert is ready.
+                    ui.spinner("dots", size="sm", color=_SSL_COLORS[entry.ssl_method])
+
+            if entry.ssl_method != SSLMethod.NONE:
+
+                async def _update_ssl_cell(e: ProxyEntry = entry, cell: ui.element = ssl_cell) -> None:
+                    ready = await proxy_service.check_cert_ready(e.domain)
+                    if ready:
+                        cell.clear()
+                        with cell:
+                            ui.chip(
+                                _SSL_LABELS[e.ssl_method],
+                                color=_SSL_COLORS[e.ssl_method],
+                            ).props("dense")
+
+                asyncio.create_task(_update_ssl_cell())
 
             ui.label(entry.created_at.strftime("%Y-%m-%d")).classes("w-28 text-body2")
 
