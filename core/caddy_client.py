@@ -130,7 +130,11 @@ def _build_config(
     if https_routes:
         servers["https_server"] = {"listen": [":443"], "routes": https_routes}
 
-    config: dict = {"apps": {}}
+    # The admin block must be included on every /load so Caddy keeps its
+    # admin endpoint on 0.0.0.0:2019.  Without it, Caddy reverts to the
+    # default localhost:2019 on every config reload, making the endpoint
+    # unreachable from the app container on subsequent calls.
+    config: dict = {"admin": {"listen": "0.0.0.0:2019"}, "apps": {}}
     if servers:
         config["apps"]["http"] = {"servers": servers}
     if tls_policies:

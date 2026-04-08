@@ -131,7 +131,33 @@ async def main_page() -> None:
             _render_proxy_row(entry)
 
     def _render_proxy_row(entry: ProxyEntry) -> None:
-        """Render a single managed-proxy row."""
+        """Render a single managed-proxy row with an inline confirmation dialog.
+
+        The dialog is built here while the NiceGUI slot context is active.
+        The delete button just calls dialog.open() — no asyncio.create_task needed.
+        """
+        # Pre-build the confirmation dialog in the current slot context.
+        dialog = ui.dialog()
+        with dialog, ui.card().classes("w-80"):
+            ui.label(f"Delete '{entry.domain}'?").classes("text-subtitle1 font-bold")
+            ui.label("The Caddy route and Cloudflare A record will be permanently removed.").classes(
+                "text-grey text-sm"
+            )
+            with ui.row().classes("justify-end w-full gap-2 mt-4"):
+                ui.button("Cancel", on_click=dialog.close).props("flat")
+
+                async def do_delete(e: ProxyEntry = entry) -> None:
+                    dialog.close()
+                    try:
+                        await proxy_service.delete_entry(e.id)
+                        ui.notify(f"Deleted: {e.domain}", type="positive")
+                        await load_data()
+                    except Exception as exc:
+                        logger.error(f"Delete failed for {e.domain}: {exc}")
+                        ui.notify(f"Error: {exc}", type="negative")
+
+                ui.button("Delete", color="negative", on_click=do_delete)
+
         with ui.row().classes("w-full px-4 py-2 items-center border-b proxy-table-row"):
             with ui.element("div").classes("flex-1"):
                 ui.link(
@@ -170,32 +196,8 @@ async def main_page() -> None:
                 ui.button(
                     icon="delete",
                     color="negative",
-                    on_click=lambda e=entry: asyncio.create_task(confirm_delete_proxy(e)),
+                    on_click=dialog.open,
                 ).props("dense flat round")
-
-    async def confirm_delete_proxy(entry: ProxyEntry) -> None:
-        """Show a confirmation dialog; on confirm, delete the managed entry."""
-        dialog = ui.dialog()
-        with dialog, ui.card().classes("w-80"):
-            ui.label(f"Delete '{entry.domain}'?").classes("text-subtitle1 font-bold")
-            ui.label("The Caddy route and Cloudflare A record will be permanently removed.").classes(
-                "text-grey text-sm"
-            )
-            with ui.row().classes("justify-end w-full gap-2 mt-4"):
-                ui.button("Cancel", on_click=dialog.close).props("flat")
-
-                async def do_delete_proxy() -> None:
-                    dialog.close()
-                    try:
-                        await proxy_service.delete_entry(entry.id)
-                        ui.notify(f"Deleted: {entry.domain}", type="positive")
-                        await load_data()
-                    except Exception as exc:
-                        logger.error(f"Delete failed for {entry.domain}: {exc}")
-                        ui.notify(f"Error: {exc}", type="negative")
-
-                ui.button("Delete", color="negative", on_click=do_delete_proxy)
-        dialog.open()
 
     # -- Unmanaged Domains section ------------------------------------------
 
@@ -226,7 +228,33 @@ async def main_page() -> None:
             _render_unmanaged_row(record)
 
     def _render_unmanaged_row(record: CfARecord) -> None:
-        """Render a single unmanaged A record row."""
+        """Render a single unmanaged A record row with an inline confirmation dialog.
+
+        The dialog is built here while the NiceGUI slot context is active.
+        The delete button just calls dialog.open() — no asyncio.create_task needed.
+        """
+        # Pre-build the confirmation dialog in the current slot context.
+        dialog = ui.dialog()
+        with dialog, ui.card().classes("w-80"):
+            ui.label(f"Delete '{record.name}'?").classes("text-subtitle1 font-bold")
+            ui.label(f"The Cloudflare A record pointing to {record.content} will be permanently deleted.").classes(
+                "text-grey text-sm"
+            )
+            with ui.row().classes("justify-end w-full gap-2 mt-4"):
+                ui.button("Cancel", on_click=dialog.close).props("flat")
+
+                async def do_delete_cf(r: CfARecord = record) -> None:
+                    dialog.close()
+                    try:
+                        await proxy_service.delete_cloudflare_record(r.zone_id, r.record_id)
+                        ui.notify(f"Deleted: {r.name}", type="positive")
+                        await load_data()
+                    except Exception as exc:
+                        logger.error(f"Delete failed for CF record {r.name}: {exc}")
+                        ui.notify(f"Error: {exc}", type="negative")
+
+                ui.button("Delete", color="negative", on_click=do_delete_cf)
+
         with ui.row().classes("w-full px-4 py-2 items-center border-b proxy-table-row"):
             with ui.element("div").classes("flex-1"):
                 ui.link(
@@ -247,32 +275,8 @@ async def main_page() -> None:
                 ui.button(
                     icon="delete",
                     color="negative",
-                    on_click=lambda r=record: asyncio.create_task(confirm_delete_cf_record(r)),
+                    on_click=dialog.open,
                 ).props("dense flat round")
-
-    async def confirm_delete_cf_record(record: CfARecord) -> None:
-        """Show a confirmation dialog; on confirm, delete the CF A record."""
-        dialog = ui.dialog()
-        with dialog, ui.card().classes("w-80"):
-            ui.label(f"Delete '{record.name}'?").classes("text-subtitle1 font-bold")
-            ui.label(f"The Cloudflare A record pointing to {record.content} will be permanently deleted.").classes(
-                "text-grey text-sm"
-            )
-            with ui.row().classes("justify-end w-full gap-2 mt-4"):
-                ui.button("Cancel", on_click=dialog.close).props("flat")
-
-                async def do_delete_cf() -> None:
-                    dialog.close()
-                    try:
-                        await proxy_service.delete_cloudflare_record(record.zone_id, record.record_id)
-                        ui.notify(f"Deleted: {record.name}", type="positive")
-                        await load_data()
-                    except Exception as exc:
-                        logger.error(f"Delete failed for CF record {record.name}: {exc}")
-                        ui.notify(f"Error: {exc}", type="negative")
-
-                ui.button("Delete", color="negative", on_click=do_delete_cf)
-        dialog.open()
 
     # ---- page structure ---------------------------------------------------
 
