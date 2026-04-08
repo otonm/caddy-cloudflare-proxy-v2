@@ -35,7 +35,7 @@ services:
       ACME_EMAIL: ${ACME_EMAIL}
       DEBUG: ${DEBUG}
     depends_on:
-      caddy:
+      proxy-caddy:
         condition: service_healthy
     networks:
       - default
