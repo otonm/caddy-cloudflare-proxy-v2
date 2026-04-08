@@ -25,12 +25,14 @@ from core.cloudflare_client import (
     CloudflareError,
     delete_a_record,
     get_a_record,
+    list_a_record_names,
+    list_a_records,
     list_zones,
     upsert_a_record,
 )
 from core.config import settings
 from core.docker_client import list_running_containers
-from core.models import CloudflareZone, ProxyEntry, ProxyTarget, SourceIPType, SSLMethod, TargetType
+from core.models import CfARecord, CloudflareZone, ProxyEntry, ProxyTarget, SourceIPType, SSLMethod, TargetType
 from core.tailscale_client import get_caddy_host_ip, list_devices
 from core.utils import detect_public_ip
 
@@ -288,6 +290,57 @@ async def get_available_zones() -> list[CloudflareZone]:
     Raises CloudflareError if the API call fails.
     """
     return await list_zones()
+
+
+async def get_zone_dns_names(zone_id: str) -> list[str]:
+    """Return sorted A record FQDNs for the given zone.
+
+    The UI uses this to populate the domain dropdown on the new-entry form,
+    letting users adopt an existing Cloudflare A record into Caddy management.
+    Returns an empty list if zone_id is empty.
+
+    Raises CloudflareError if the API call fails.
+    """
+    if not zone_id:
+        return []
+    return await list_a_record_names(zone_id)
+
+
+async def get_unmanaged_records() -> dict[CloudflareZone, list[CfARecord]]:
+    """Return Cloudflare A records that have no matching ProxyEntry, grouped by zone.
+
+    Fetches all zones and their A records concurrently, then subtracts the
+    domains already managed by this application. The result is a dict mapping
+    each zone to the list of unmanaged records in that zone; zones with no
+    unmanaged records are omitted.
+
+    Never raises — individual zone fetch failures are logged and skipped so that
+    a single bad zone does not hide others.
+    """
+    zones = await list_zones()
+    entries = await store.list_entries()
+    managed_domains: set[str] = {e.domain for e in entries}
+
+    async def _fetch_zone(zone: CloudflareZone) -> tuple[CloudflareZone, list[CfARecord]]:
+        try:
+            records = await list_a_records(zone.id, zone.name)
+        except CloudflareError as exc:
+            logger.warning(f"Could not fetch A records for zone {zone.name}: {exc}")
+            records = []
+        unmanaged = [r for r in records if r.name not in managed_domains]
+        return zone, unmanaged
+
+    results = await asyncio.gather(*(_fetch_zone(z) for z in zones))
+    return {zone: records for zone, records in results if records}
+
+
+async def delete_cloudflare_record(zone_id: str, record_id: str) -> None:
+    """Delete a Cloudflare A record that is not managed by this application.
+
+    Raises CloudflareError if the deletion fails.
+    """
+    logger.info(f"Deleting unmanaged Cloudflare record {record_id} in zone {zone_id}")
+    await delete_a_record(zone_id, record_id)
 
 
 async def get_available_targets() -> list[ProxyTarget]:

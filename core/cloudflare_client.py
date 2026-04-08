@@ -14,7 +14,7 @@ from collections.abc import AsyncIterator
 import httpx
 
 from core.config import settings
-from core.models import CloudflareZone
+from core.models import CfARecord, CloudflareZone
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +88,51 @@ async def get_a_record(zone_id: str, name: str) -> tuple[str, str] | None:
         return None
     record = data["result"][0]
     return record["id"], record["content"]
+
+
+async def list_a_records(zone_id: str, zone_name: str = "") -> list[CfARecord]:
+    """Return all A records in the given zone as rich objects.
+
+    Used by the main page to display unmanaged records and by the form dropdown.
+    Results are sorted by record name.
+
+    Raises CloudflareError if the API call fails.
+    """
+    logger.debug(f"Fetching A records for zone {zone_id}")
+    async with _cf_client() as client:
+        response = await client.get(
+            f"/zones/{zone_id}/dns_records",
+            params={"type": "A", "per_page": 100},
+        )
+        _check_response(response, f"list A records for zone {zone_id}")
+        data = response.json()
+    records = sorted(
+        (
+            CfARecord(
+                record_id=r["id"],
+                name=r["name"],
+                content=r["content"],
+                proxied=r.get("proxied", False),
+                zone_id=zone_id,
+                zone_name=zone_name,
+            )
+            for r in data.get("result", [])
+        ),
+        key=lambda r: r.name,
+    )
+    logger.debug(f"Found {len(records)} A records in zone {zone_id}")
+    return records
+
+
+async def list_a_record_names(zone_id: str, zone_name: str = "") -> list[str]:
+    """Return sorted list of A record FQDNs in the given zone.
+
+    Convenience wrapper around list_a_records used by the form dropdown.
+
+    Raises CloudflareError if the API call fails.
+    """
+    records = await list_a_records(zone_id, zone_name)
+    return [r.name for r in records]
 
 
 async def upsert_a_record(zone_id: str, name: str, ip: str) -> str:

@@ -244,6 +244,15 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
     elif zones:
         init_zone_id = zones[0].id
 
+    # ---- load existing A record names for the domain dropdown (create only) -
+    # Used to pre-populate the subdomain select with records already in CF.
+    init_dns_names: list[str] = []
+    if not is_edit and init_zone_id:
+        try:
+            init_dns_names = await proxy_service.get_zone_dns_names(init_zone_id)
+        except Exception as exc:
+            logger.warning(f"Could not load DNS records for zone {init_zone_id}: {exc}")
+
     # ---- tailscale source IP availability ---------------------------------
     ts_ip_val = proxy_service.get_tailscale_ip()
     ts_ip_available = ts_ip_val is not None
@@ -284,6 +293,17 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
                 return f".{zone_name_by_id[zone_id]}"
             return ""
 
+        def _subdomain_options(names: list[str], zone_id: str | None) -> list[str]:
+            """Return [""] + sorted subdomain prefixes derived from A record FQDNs.
+
+            Strips the zone apex suffix from each FQDN so the dropdown shows only
+            the subdomain portion (e.g. "app.example.com" → "app").
+            """
+            apex = zone_name_by_id.get(zone_id or "", "")
+            suffix = f".{apex}" if apex else ""
+            subs = sorted(n[: -len(suffix)] if suffix and n.endswith(suffix) else n for n in names)
+            return ["", *subs]
+
         if zones_failed:
             ui.label("⚠ Could not load zones — saving will be disabled.").classes("text-negative text-sm")
         elif not zones:
@@ -294,12 +314,25 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
         else:
             zone_options = {z.id: z.name for z in zones}
 
+            async def _refresh_domain_options(zone_id: str) -> None:
+                """Reload the subdomain dropdown options for a newly selected zone."""
+                try:
+                    names = await proxy_service.get_zone_dns_names(zone_id)
+                except Exception as exc:
+                    logger.warning(f"Could not load DNS records for zone {zone_id}: {exc}")
+                    names = []
+                if domain_input is not None:
+                    domain_input.options = _subdomain_options(names, zone_id)
+                    domain_input.value = ""
+                    domain_input.update()
+
             def _on_zone_change(e: Any) -> None:  # noqa: ANN401
                 nonlocal selected_zone_id
                 selected_zone_id = e.value
                 # Update the domain suffix hint whenever the zone changes.
                 if not is_edit:
                     zone_suffix_label.set_text(_zone_suffix(e.value))
+                    asyncio.ensure_future(_refresh_domain_options(e.value))
 
             ui.select(
                 options=zone_options,
@@ -314,7 +347,7 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
 
         # -- domain section -------------------------------------------------
         ui.label("Domain").classes("text-subtitle2 text-weight-bold")
-        domain_input: ui.input | None = None
+        domain_input: ui.select | None = None
         domain_err = ui.label("").classes("text-negative text-sm")
         domain_err.set_visibility(False)
 
@@ -324,9 +357,12 @@ async def _render_form(entry_id: uuid.UUID | None) -> None:  # noqa: PLR0912, PL
             ui.label("Domain cannot be changed after creation.").classes("text-grey text-sm")
         else:
             with ui.row().classes("items-center gap-2 w-full"):
-                domain_input = ui.input(
+                domain_input = ui.select(
+                    options=_subdomain_options(init_dns_names, init_zone_id),
+                    value="",
                     label="Subdomain",
-                    placeholder="app",
+                    with_input=True,
+                    new_value_mode="add-unique",
                 ).classes("flex-1")
                 # Zone suffix hint — updates when the zone dropdown changes.
                 zone_suffix_label = ui.label(_zone_suffix(init_zone_id)).classes(

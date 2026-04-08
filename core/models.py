@@ -134,3 +134,18 @@ class ProxyTarget(BaseModel):
     label: str  # human-readable display name
     value: str  # stored as ProxyEntry.target_value ("host:port")
     target_type: TargetType
+
+
+class CfARecord(BaseModel):
+    """A Cloudflare DNS A record — runtime-only, never persisted.
+
+    Used by the main page to display A records that exist in Cloudflare but
+    are not managed by this application (i.e. have no matching ProxyEntry).
+    """
+
+    record_id: str  # Cloudflare DNS record ID
+    name: str  # FQDN, e.g. "app.example.com"
+    content: str  # IP address the record points to
+    proxied: bool  # whether Cloudflare's proxy is enabled
+    zone_id: str  # parent Cloudflare zone ID
+    zone_name: str  # parent zone apex, e.g. "example.com"
