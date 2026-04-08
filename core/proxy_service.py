@@ -306,13 +306,12 @@ async def get_zone_dns_names(zone_id: str) -> list[str]:
     return await list_a_record_names(zone_id)
 
 
-async def get_unmanaged_records() -> dict[CloudflareZone, list[CfARecord]]:
+async def get_unmanaged_records() -> list[tuple[CloudflareZone, list[CfARecord]]]:
     """Return Cloudflare A records that have no matching ProxyEntry, grouped by zone.
 
     Fetches all zones and their A records concurrently, then subtracts the
-    domains already managed by this application. The result is a dict mapping
-    each zone to the list of unmanaged records in that zone; zones with no
-    unmanaged records are omitted.
+    domains already managed by this application. Returns a list of (zone, records)
+    pairs sorted by zone name; zones with no unmanaged records are omitted.
 
     Never raises — individual zone fetch failures are logged and skipped so that
     a single bad zone does not hide others.
@@ -331,7 +330,7 @@ async def get_unmanaged_records() -> dict[CloudflareZone, list[CfARecord]]:
         return zone, unmanaged
 
     results = await asyncio.gather(*(_fetch_zone(z) for z in zones))
-    return {zone: records for zone, records in results if records}
+    return [(zone, records) for zone, records in results if records]
 
 
 async def delete_cloudflare_record(zone_id: str, record_id: str) -> None:

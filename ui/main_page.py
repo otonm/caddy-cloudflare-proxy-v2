@@ -65,7 +65,7 @@ async def main_page() -> None:
     """Root page: managed proxies and unmanaged Cloudflare A records."""
     apply_theme()
     entries: list[ProxyEntry] = []
-    unmanaged: dict[CloudflareZone, list[CfARecord]] = {}
+    unmanaged: list[tuple[CloudflareZone, list[CfARecord]]] = []
 
     # ---- nested helpers ---------------------------------------------------
     # All helpers close over `entries`, `unmanaged`, and `content`.  `content`
@@ -207,7 +207,7 @@ async def main_page() -> None:
         ui.label("Unmanaged Domains").classes("text-h6 text-weight-bold mt-6")
         ui.separator()
 
-        for zone, records in sorted(unmanaged.items(), key=lambda kv: kv[0].name):
+        for zone, records in unmanaged:
             _render_zone_block(zone, records)
 
     def _render_zone_block(zone: CloudflareZone, records: list[CfARecord]) -> None:
