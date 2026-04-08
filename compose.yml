@@ -1,11 +1,11 @@
 services:
-  caddy:
+  proxy-caddy:
     image: ghcr.io/otonm/caddy-cloudflare-proxy-v2/caddy:latest
-    container_name: caddy
+    container_name: proxy-caddy
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
+      - 80:80
+      - 443:443
     volumes:
       - caddy_data:/data
       - caddy_config:/config
@@ -14,26 +14,31 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 10s
+      start_period: 5s
     networks:
-      - proxy_net
+      - default
+      - proxy
 
-  app:
+  proxy-webui:
     image: ghcr.io/otonm/caddy-cloudflare-proxy-v2/app:latest
-    container_name: caddy-proxy-app
+    container_name: proxy-webui
     restart: unless-stopped
     ports:
-      - "8088:8088"
+      - 8088:8088
     volumes:
       - app_data:/data
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    env_file:
-      - .env
+    environment:
+      CF_API_TOKEN: ${CF_API_TOKEN}
+      TS_API_KEY: ${TS_API_KEY}
+      TS_TAILNET: ${TS_TAILNET}
+      ACME_EMAIL: ${ACME_EMAIL}
+      DEBUG: ${DEBUG}
     depends_on:
       caddy:
         condition: service_healthy
     networks:
-      - proxy_net
+      - default
 
 volumes:
   caddy_data:
@@ -41,5 +46,7 @@ volumes:
   app_data:
 
 networks:
-  proxy_net:
+  default:
     driver: bridge
+  proxy:
+    external: true
