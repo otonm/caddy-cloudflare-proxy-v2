@@ -91,7 +91,7 @@ async def main_page() -> None:
 
     with ui.header().classes("items-center justify-between px-4"):
         ui.label("Caddy Proxy Manager").classes("text-h5 text-white")
-        ui.button("+ Add Entry", icon="add", on_click=lambda: ui.navigate.to("/entry/new"))
+        ui.button("Add Entry", icon="add", on_click=lambda: ui.navigate.to("/entry/new"))
 
     ui.separator()
     table_container

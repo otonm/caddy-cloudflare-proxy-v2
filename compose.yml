@@ -1,5 +1,5 @@
 services:
-  proxy-caddy:
+  caddy:
     image: ghcr.io/otonm/caddy-cloudflare-proxy-v2/caddy:latest
     container_name: proxy-caddy
     restart: unless-stopped
@@ -35,7 +35,7 @@ services:
       ACME_EMAIL: ${ACME_EMAIL}
       DEBUG: ${DEBUG}
     depends_on:
-      proxy-caddy:
+      caddy:
         condition: service_healthy
     networks:
       - default
