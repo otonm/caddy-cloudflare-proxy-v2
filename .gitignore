@@ -10,3 +10,4 @@ dist/
 memory/
 .claude/
 uv.lock
+TODO.md

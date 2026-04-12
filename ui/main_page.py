@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime
 
 from nicegui import ui
 
 import core.proxy_service as proxy_service
-from core.models import CfARecord, CloudflareZone, ProxyEntry, SourceIPType, SSLMethod, TargetType
+from core.config import settings
+from core.models import MANAGED_COMMENT, CfARecord, CloudflareZone, ProxyEntry, SourceIPType, SSLMethod, TargetType
 from ui.theme import apply_theme
 
 logger = logging.getLogger(__name__)
@@ -69,9 +71,10 @@ async def main_page() -> None:
     ts_labels: dict[str, str] = {}
 
     # ---- nested helpers ---------------------------------------------------
-    # All helpers close over `entries`, `unmanaged`, and `content`.  `content`
-    # is assigned below; by the time any helper is *called* (asynchronously,
-    # after the page coroutine yields), `content` is fully initialised.
+    # All helpers close over `entries`, `unmanaged`, `content`, and
+    # `last_refreshed_label`.  These are assigned below; by the time any helper
+    # is *called* (asynchronously, after the page coroutine yields), they are
+    # fully initialised.
 
     async def load_data() -> None:
         """Fetch entries, unmanaged records, and Tailscale IP labels, then re-render."""
@@ -92,6 +95,7 @@ async def main_page() -> None:
             logger.warning(f"Could not load Tailscale IP labels: {exc}")
             ts_labels = {}
         _render_all()
+        last_refreshed_label.set_text(f"Refreshed {datetime.now().strftime('%H:%M:%S')}")
 
     def _render_error(message: str) -> None:
         """Replace content area with an error card and a retry button."""
@@ -300,7 +304,13 @@ async def main_page() -> None:
                     new_tab=True,
                 )
 
-            ui.label(record.content).classes("flex-1 text-body2 font-mono")
+            with ui.row().classes("flex-1 items-center gap-2"):
+                ui.label(record.content).classes("text-body2 font-mono")
+                # A record stamped by this app but missing its local ProxyEntry —
+                # likely caused by external deletion of proxy_config.json or a manual
+                # store edit. Flag it so the user knows it was app-managed.
+                if record.comment == MANAGED_COMMENT:
+                    ui.chip("App-managed — missing entry", color="orange", icon="warning").props("dense outline")
 
             with ui.element("div").classes("w-24"):
                 if record.proxied:
@@ -319,14 +329,23 @@ async def main_page() -> None:
 
     with ui.header().classes("items-center justify-between px-4"):
         ui.label("Caddy Proxy Manager").classes("text-h5 text-white")
-        ui.button(
-            "Add Entry",
-            icon="add",
-            on_click=lambda: ui.navigate.to("/entry/new"),
-        )
+        with ui.row().classes("items-center gap-2"):
+            last_refreshed_label = ui.label("").classes("text-caption opacity-70")
+            ui.button(
+                icon="refresh",
+                on_click=lambda: asyncio.create_task(load_data()),
+            ).props("flat round dense").tooltip("Refresh now")
+            ui.button(
+                "Add Entry",
+                icon="add",
+                on_click=lambda: ui.navigate.to("/entry/new"),
+            )
 
     ui.separator()
 
     content = ui.column().classes("p-4 gap-0").style("width: 90%; margin: 0 auto;")
 
     asyncio.create_task(load_data())
+    # Periodic background refresh — interval configured via REFRESH_INTERVAL env var.
+    # NiceGUI cancels per-client timers automatically when the browser tab disconnects.
+    ui.timer(settings.refresh_interval, load_data)

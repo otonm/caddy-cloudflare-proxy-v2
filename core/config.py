@@ -58,6 +58,18 @@ class Settings(BaseSettings):
             return None
         return v
 
+    # Optional — periodic refresh interval for the main page (seconds).
+    # Must be at least 30 to avoid hammering the Cloudflare API.
+    refresh_interval: int = 300
+
+    @field_validator("refresh_interval")
+    @classmethod
+    def validate_refresh_interval(cls, v: int) -> int:
+        """Clamp refresh interval to a safe minimum."""
+        if v < 30:
+            raise ValueError(f"REFRESH_INTERVAL must be >= 30 seconds, got {v}")
+        return v
+
     # Optional — logging verbosity
     debug: bool = False
 

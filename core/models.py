@@ -145,6 +145,12 @@ class ProxyTarget(BaseModel):
     target_type: TargetType
 
 
+# Comment stamped on every A record created or updated by this application.
+# Visible in the Cloudflare dashboard and filterable via the DNS API
+# (all Cloudflare plans support the comment field).
+MANAGED_COMMENT: str = "Managed by caddy-cloudflare-proxy"
+
+
 class CfARecord(BaseModel):
     """A Cloudflare DNS A record — runtime-only, never persisted.
 
@@ -158,3 +164,4 @@ class CfARecord(BaseModel):
     proxied: bool  # whether Cloudflare's proxy is enabled
     zone_id: str  # parent Cloudflare zone ID
     zone_name: str  # parent zone apex, e.g. "example.com"
+    comment: str = ""  # comment field from Cloudflare; MANAGED_COMMENT if app-managed

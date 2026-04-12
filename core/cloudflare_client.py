@@ -14,7 +14,7 @@ from collections.abc import AsyncIterator
 import httpx
 
 from core.config import settings
-from core.models import CfARecord, CloudflareZone
+from core.models import MANAGED_COMMENT, CfARecord, CloudflareZone
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +115,7 @@ async def list_a_records(zone_id: str, zone_name: str = "") -> list[CfARecord]:
                 proxied=r.get("proxied", False),
                 zone_id=zone_id,
                 zone_name=zone_name,
+                comment=r.get("comment", ""),
             )
             for r in data.get("result", [])
         ),
@@ -141,6 +142,9 @@ async def upsert_a_record(zone_id: str, name: str, ip: str) -> str:
     Always sets proxied=False — the Cloudflare proxy is disabled because Caddy
     needs the real IP for TLS certificate issuance, and Tailscale IPs cannot be
     proxied by Cloudflare. TTL=1 means automatic.
+
+    MANAGED_COMMENT is stamped on every record so it can be identified in the
+    Cloudflare dashboard and filtered via the API.
     """
     logger.info(f"Upserting Cloudflare A record: {name} → {ip}")
     existing = await get_a_record(zone_id, name)
@@ -153,7 +157,7 @@ async def upsert_a_record(zone_id: str, name: str, ip: str) -> str:
         async with _cf_client() as client:
             response = await client.patch(
                 f"/zones/{zone_id}/dns_records/{record_id}",
-                json={"content": ip},
+                json={"content": ip, "comment": MANAGED_COMMENT},
             )
             _check_response(response, f"update A record for {name}")
         return record_id
@@ -161,10 +165,52 @@ async def upsert_a_record(zone_id: str, name: str, ip: str) -> str:
     async with _cf_client() as client:
         response = await client.post(
             f"/zones/{zone_id}/dns_records",
-            json={"type": "A", "name": name, "content": ip, "ttl": 1, "proxied": False},
+            json={
+                "type": "A",
+                "name": name,
+                "content": ip,
+                "ttl": 1,
+                "proxied": False,
+                "comment": MANAGED_COMMENT,
+            },
         )
         _check_response(response, f"create A record for {name}")
         return response.json()["result"]["id"]
+
+
+async def list_managed_a_records(zone_id: str, zone_name: str = "") -> list[CfARecord]:
+    """Return only the A records in a zone that carry the app's managed comment.
+
+    Uses the Cloudflare comment filter so only records stamped by this application
+    are returned. Useful for reconciliation and future sync features.
+
+    Raises CloudflareError if the API call fails.
+    """
+    logger.debug(f"Fetching managed A records for zone {zone_id}")
+    async with _cf_client() as client:
+        response = await client.get(
+            f"/zones/{zone_id}/dns_records",
+            params={"type": "A", "per_page": 100, "comment.exact": MANAGED_COMMENT},
+        )
+        _check_response(response, f"list managed A records for zone {zone_id}")
+        data = response.json()
+    records = sorted(
+        (
+            CfARecord(
+                record_id=r["id"],
+                name=r["name"],
+                content=r["content"],
+                proxied=r.get("proxied", False),
+                zone_id=zone_id,
+                zone_name=zone_name,
+                comment=r.get("comment", ""),
+            )
+            for r in data.get("result", [])
+        ),
+        key=lambda r: r.name,
+    )
+    logger.debug(f"Found {len(records)} managed A records in zone {zone_id}")
+    return records
 
 
 async def delete_a_record(zone_id: str, record_id: str) -> None:
