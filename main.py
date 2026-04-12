@@ -72,6 +72,6 @@ if __name__ in {"__main__", "__mp_main__"}:
     # run_with mounts NiceGUI onto FastAPI; port/title are uvicorn/server concerns.
     # storage_secret encrypts NiceGUI's browser session storage.
     # Resolved from APP_SECRET env var, persisted file, or auto-generated at first boot.
-    ui.run_with(app, storage_secret=resolve_app_secret())
+    ui.run_with(app, title="Caddy Proxy Manager", favicon="⚡", storage_secret=resolve_app_secret())
     # log_config=None prevents uvicorn from overriding our configure_logging() setup.
     uvicorn.run(app, host="0.0.0.0", port=APP_PORT, log_config=None)

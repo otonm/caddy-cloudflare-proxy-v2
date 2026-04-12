@@ -48,8 +48,8 @@ logger = logging.getLogger(__name__)
 
 _SSL_LABELS: dict[SSLMethod, str] = {
     SSLMethod.NONE: "No SSL",
-    SSLMethod.HTTP01: "HTTP Request",
-    SSLMethod.DNS01: "DNS Request",
+    SSLMethod.HTTP01: "HTTPS – Auto (HTTP-01)",
+    SSLMethod.DNS01: "HTTPS – DNS (Cloudflare)",
 }
 
 _TARGET_LABELS: dict[TargetType, str] = {
