@@ -165,3 +165,9 @@ class CfARecord(BaseModel):
     zone_id: str  # parent Cloudflare zone ID
     zone_name: str  # parent zone apex, e.g. "example.com"
     comment: str = ""  # comment field from Cloudflare; MANAGED_COMMENT if app-managed
+
+    @field_validator("comment", mode="before")
+    @classmethod
+    def coerce_none_comment(cls, v: object) -> str:
+        # Cloudflare returns null for records with no comment; normalise to empty string
+        return v if isinstance(v, str) else ""
