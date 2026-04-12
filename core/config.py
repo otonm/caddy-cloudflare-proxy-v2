@@ -23,6 +23,7 @@ CADDY_ADMIN_URL: Final[str] = "http://caddy:2019"
 DATA_DIR: Final[pathlib.Path] = pathlib.Path("/data")
 APP_PORT: Final[int] = 8088
 CONFIG_FILE: Final[pathlib.Path] = DATA_DIR / "proxy_config.json"
+SECRET_FILE: Final[pathlib.Path] = DATA_DIR / "app_secret.txt"
 
 
 class Settings(BaseSettings):
@@ -39,10 +40,6 @@ class Settings(BaseSettings):
     # Required secrets — never log these
     cf_api_token: SecretStr
     ts_api_key: SecretStr
-
-    # Optional — encrypts NiceGUI browser session storage. If not set, a random
-    # value is generated at startup (sessions will not survive container restarts).
-    app_secret: SecretStr | None = None
 
     # Required plain strings
     ts_tailnet: str
@@ -74,6 +71,10 @@ class Settings(BaseSettings):
             raise ValueError(f"REFRESH_INTERVAL must be >= 30 seconds, got {v}")
         return v
 
+    # Optional — encrypts NiceGUI browser session storage.
+    # If not set, a secret is auto-generated and persisted in SECRET_FILE.
+    app_secret: SecretStr | None = None
+
     # Optional — logging verbosity
     debug: bool = False
 
@@ -104,6 +105,41 @@ def configure_logging(debug: bool = False) -> None:
     for name in ("httpx", "httpcore", "docker", "uvicorn.access"):
         logging.getLogger(name).setLevel(logging.WARNING)
     logging.getLogger("nicegui").setLevel(logging.INFO)
+
+
+def resolve_app_secret() -> str:
+    """Return the NiceGUI storage secret, generating and persisting one if needed.
+
+    Resolution order:
+    1. APP_SECRET env var — explicit, highest priority.
+    2. Persisted file at SECRET_FILE — survives container restarts.
+    3. Auto-generated on first boot — written to SECRET_FILE and logged so the
+       operator can capture the value and promote it to an env var if desired.
+
+    This function is intentionally synchronous: it runs before the uvicorn
+    event loop starts, so blocking file I/O is safe here.
+    """
+    import secrets as _secrets
+
+    if settings.app_secret is not None:
+        return settings.app_secret.get_secret_value()
+
+    if SECRET_FILE.exists():
+        secret = SECRET_FILE.read_text(encoding="utf-8").strip()
+        if secret:
+            logger.debug(f"Loaded APP_SECRET from {SECRET_FILE}")
+            return secret
+
+    # First boot: generate, persist, and announce.
+    secret = _secrets.token_hex(32)
+    SECRET_FILE.parent.mkdir(parents=True, exist_ok=True)
+    SECRET_FILE.write_text(secret, encoding="utf-8")
+    logger.warning(
+        f"APP_SECRET not set — generated a new secret and saved to {SECRET_FILE}. "
+        "To use a stable value across reinstalls, add it to your .env:\n"
+        f"  APP_SECRET={secret}"
+    )
+    return secret
 
 
 # Module-level singleton — import this everywhere.

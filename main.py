@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import importlib
 import logging
-import secrets
 
 import uvicorn
 from fastapi import FastAPI
@@ -26,7 +25,7 @@ from nicegui import app as nicegui_app
 from nicegui import ui
 
 from core import proxy_service
-from core.config import APP_PORT, configure_logging, settings
+from core.config import APP_PORT, configure_logging, resolve_app_secret, settings
 
 # Register @ui.page routes defined in each page module as a side effect of importing.
 # importlib.import_module is used instead of `import ui.form_page` to avoid binding
@@ -71,13 +70,8 @@ def create_app() -> FastAPI:
 if __name__ in {"__main__", "__mp_main__"}:
     app = create_app()
     # run_with mounts NiceGUI onto FastAPI; port/title are uvicorn/server concerns.
-    # storage_secret encrypts NiceGUI's browser session storage. If APP_SECRET is
-    # not set, a random value is used — sessions won't survive container restarts.
-    if settings.app_secret is not None:
-        storage_secret = settings.app_secret.get_secret_value()
-    else:
-        storage_secret = secrets.token_hex(32)
-        logger.warning("APP_SECRET not set — using a random secret; sessions will not survive restarts")
-    ui.run_with(app, storage_secret=storage_secret)
+    # storage_secret encrypts NiceGUI's browser session storage.
+    # Resolved from APP_SECRET env var, persisted file, or auto-generated at first boot.
+    ui.run_with(app, storage_secret=resolve_app_secret())
     # log_config=None prevents uvicorn from overriding our configure_logging() setup.
     uvicorn.run(app, host="0.0.0.0", port=APP_PORT, log_config=None)
