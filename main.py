@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import importlib
 import logging
+import secrets
 
 import uvicorn
 from fastapi import FastAPI
@@ -70,8 +71,13 @@ def create_app() -> FastAPI:
 if __name__ in {"__main__", "__mp_main__"}:
     app = create_app()
     # run_with mounts NiceGUI onto FastAPI; port/title are uvicorn/server concerns.
-    # storage_secret encrypts NiceGUI's browser session storage.
-    # TODO: move to APP_SECRET env var for production hardening.
-    ui.run_with(app, storage_secret="change-me")
+    # storage_secret encrypts NiceGUI's browser session storage. If APP_SECRET is
+    # not set, a random value is used — sessions won't survive container restarts.
+    if settings.app_secret is not None:
+        storage_secret = settings.app_secret.get_secret_value()
+    else:
+        storage_secret = secrets.token_hex(32)
+        logger.warning("APP_SECRET not set — using a random secret; sessions will not survive restarts")
+    ui.run_with(app, storage_secret=storage_secret)
     # log_config=None prevents uvicorn from overriding our configure_logging() setup.
     uvicorn.run(app, host="0.0.0.0", port=APP_PORT, log_config=None)

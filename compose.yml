@@ -30,6 +30,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
       CF_API_TOKEN: ${CF_API_TOKEN}
+      APP_SECRET: ${APP_SECRET:-}
       TS_API_KEY: ${TS_API_KEY}
       TS_TAILNET: ${TS_TAILNET}
       ACME_EMAIL: ${ACME_EMAIL}

@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     cf_api_token: SecretStr
     ts_api_key: SecretStr
 
+    # Optional — encrypts NiceGUI browser session storage. If not set, a random
+    # value is generated at startup (sessions will not survive container restarts).
+    app_secret: SecretStr | None = None
+
     # Required plain strings
     ts_tailnet: str
     acme_email: str
