@@ -20,6 +20,7 @@ import logging
 
 import uvicorn
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from nicegui import app as nicegui_app
 from nicegui import ui
 
@@ -56,7 +57,14 @@ def create_app() -> FastAPI:
     output uses the correct format and level.
     """
     configure_logging(settings.debug)
-    return FastAPI(title="Caddy Proxy Manager")
+    fastapi_app = FastAPI(title="Caddy Proxy Manager")
+
+    @fastapi_app.get("/health")
+    async def health() -> JSONResponse:
+        """Liveness probe — returns 200 once the server is accepting requests."""
+        return JSONResponse({"status": "ok"})
+
+    return fastapi_app
 
 
 if __name__ in {"__main__", "__mp_main__"}:
