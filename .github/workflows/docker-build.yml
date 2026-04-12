@@ -12,6 +12,8 @@ env:
   IMAGE_CADDY: ghcr.io/${{ github.repository }}/caddy
   DOCKHAND_WEBHOOK_URL: ${{ secrets.DOCKHAND_WEBHOOK_URL }}
   DOCKHAND_WEBHOOK_SECRET: ${{ secrets.DOCKHAND_WEBHOOK_SECRET }}
+  CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+  CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
 
 jobs:
   lint:
@@ -68,4 +70,6 @@ jobs:
             "${{ env.DOCKHAND_WEBHOOK_URL }}" \
             -H "Content-Type: application/json" \
             -H "X-Hub-Signature-256: $SIGNATURE" \
+            -H "CF-Access-Client-Id: ${{ env.CF_ACCESS_CLIENT_ID }}" \
+            -H "CF-Access-Client-Secret: ${{ env.CF_ACCESS_CLIENT_SECRET }}" \
             -d "$PAYLOAD"
