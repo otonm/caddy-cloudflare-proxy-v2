@@ -12,7 +12,7 @@ import asyncio
 import logging
 from datetime import datetime
 
-from nicegui import ui
+from nicegui import Client, ui
 
 import core.proxy_service as proxy_service
 from core.config import settings
@@ -63,7 +63,7 @@ _TARGET_LABELS: dict[TargetType, str] = {
 
 
 @ui.page("/")
-async def main_page() -> None:
+async def main_page(client: Client) -> None:
     """Root page: managed proxies and unmanaged Cloudflare A records."""
     apply_theme()
     entries: list[ProxyEntry] = []
@@ -161,11 +161,16 @@ async def main_page() -> None:
                     dialog.close()
                     try:
                         await proxy_service.delete_entry(e.id)
-                        ui.notify(f"Deleted: {e.domain}", type="positive")
+                        # Use `with client:` to restore a valid slot context: the
+                        # page refresh timer may have called content.clear() during
+                        # the await above, invalidating the dialog's slot parent.
+                        with client:
+                            ui.notify(f"Deleted: {e.domain}", type="positive")
                         await load_data()
                     except Exception as exc:
                         logger.error(f"Delete failed for {e.domain}: {exc}")
-                        ui.notify(f"Error: {exc}", type="negative")
+                        with client:
+                            ui.notify(f"Error: {exc}", type="negative")
 
                 ui.button("Delete", color="negative", on_click=do_delete)
 
@@ -288,11 +293,13 @@ async def main_page() -> None:
                     dialog.close()
                     try:
                         await proxy_service.delete_cloudflare_record(r.zone_id, r.record_id)
-                        ui.notify(f"Deleted: {r.name}", type="positive")
+                        with client:
+                            ui.notify(f"Deleted: {r.name}", type="positive")
                         await load_data()
                     except Exception as exc:
                         logger.error(f"Delete failed for CF record {r.name}: {exc}")
-                        ui.notify(f"Error: {exc}", type="negative")
+                        with client:
+                            ui.notify(f"Error: {exc}", type="negative")
 
                 ui.button("Delete", color="negative", on_click=do_delete_cf)
 
