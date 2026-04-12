@@ -95,16 +95,17 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build-app, build-caddy]
     # always() lets this job run even when build-caddy was skipped.
-    # We then gate on build-app succeeding and build-caddy either succeeding or
-    # having been skipped (i.e. Dockerfile.caddy was unchanged this push).
+    # Job-level if: only supports github, needs, vars, and inputs contexts —
+    # env/secrets are not available here; the webhook URL guard is on the step.
     if: |
       always() &&
       github.event_name == 'push' &&
       needs.build-app.result == 'success' &&
-      (needs.build-caddy.result == 'success' || needs.build-caddy.result == 'skipped') &&
-      secrets.DOCKHAND_WEBHOOK_URL != ''
+      (needs.build-caddy.result == 'success' || needs.build-caddy.result == 'skipped')
     steps:
       - name: Trigger Dockhand redeployment
+        # env context is available at step level, so the URL guard works here.
+        if: env.DOCKHAND_WEBHOOK_URL != ''
         run: |
           PAYLOAD='{}'
           SIGNATURE="sha256=$(echo -n "$PAYLOAD" | \
