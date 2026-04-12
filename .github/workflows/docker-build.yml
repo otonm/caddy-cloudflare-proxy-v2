@@ -55,14 +55,14 @@ jobs:
           tags: ${{ env.IMAGE_CADDY }}:latest
 
       - name: Trigger Dockhand redeployment
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && secrets.DOCKHAND_WEBHOOK_URL != ''
         run: |
           PAYLOAD='{}'
           SIGNATURE="sha256=$(echo -n "$PAYLOAD" | \
             openssl dgst -sha256 -hmac "${{ secrets.DOCKHAND_WEBHOOK_SECRET }}" | \
             awk '{print $NF}')"
 
-          curl -sf -X POST \
+          curl -v -sf -X POST \
             "${{ secrets.DOCKHAND_WEBHOOK_URL }}" \
             -H "Content-Type: application/json" \
             -H "X-Hub-Signature-256: $SIGNATURE" \
