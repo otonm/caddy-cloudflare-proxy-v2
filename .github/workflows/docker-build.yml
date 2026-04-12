@@ -25,7 +25,20 @@ jobs:
       - run: uv run ruff check .
       - run: uv run ruff format --check .
 
-  build-and-push:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      caddy: ${{ steps.filter.outputs.caddy }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            caddy:
+              - 'Dockerfile.caddy'
+
+  build-app:
     runs-on: ubuntu-latest
     needs: lint
     permissions:
@@ -50,6 +63,26 @@ jobs:
           push: ${{ github.event_name == 'push' }}
           tags: ${{ env.IMAGE_APP }}:latest
 
+  build-caddy:
+    runs-on: ubuntu-latest
+    needs: [lint, changes]
+    # Only rebuild when Dockerfile.caddy itself changes — it has no local source
+    # dependencies, so other commits never affect the output image.
+    if: needs.changes.outputs.caddy == 'true'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build & push Caddy image
         uses: docker/build-push-action@v6
         with:
@@ -58,8 +91,20 @@ jobs:
           push: ${{ github.event_name == 'push' }}
           tags: ${{ env.IMAGE_CADDY }}:latest
 
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [build-app, build-caddy]
+    # always() lets this job run even when build-caddy was skipped.
+    # We then gate on build-app succeeding and build-caddy either succeeding or
+    # having been skipped (i.e. Dockerfile.caddy was unchanged this push).
+    if: |
+      always() &&
+      github.event_name == 'push' &&
+      needs.build-app.result == 'success' &&
+      (needs.build-caddy.result == 'success' || needs.build-caddy.result == 'skipped') &&
+      env.DOCKHAND_WEBHOOK_URL != ''
+    steps:
       - name: Trigger Dockhand redeployment
-        if: github.event_name == 'push' && env.DOCKHAND_WEBHOOK_URL != ''
         run: |
           PAYLOAD='{}'
           SIGNATURE="sha256=$(echo -n "$PAYLOAD" | \
