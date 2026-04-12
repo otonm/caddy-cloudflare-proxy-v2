@@ -10,6 +10,8 @@ env:
   REGISTRY: ghcr.io
   IMAGE_APP: ghcr.io/${{ github.repository }}/app
   IMAGE_CADDY: ghcr.io/${{ github.repository }}/caddy
+  DOCKHAND_WEBHOOK_URL: ${{ secrets.DOCKHAND_WEBHOOK_URL }}
+  DOCKHAND_WEBHOOK_SECRET: ${{ secrets.DOCKHAND_WEBHOOK_SECRET }}
 
 jobs:
   lint:
@@ -55,15 +57,15 @@ jobs:
           tags: ${{ env.IMAGE_CADDY }}:latest
 
       - name: Trigger Dockhand redeployment
-        if: github.event_name == 'push' && secrets.DOCKHAND_WEBHOOK_URL != ''
+        if: github.event_name == 'push' && env.DOCKHAND_WEBHOOK_URL != ''
         run: |
           PAYLOAD='{}'
           SIGNATURE="sha256=$(echo -n "$PAYLOAD" | \
-            openssl dgst -sha256 -hmac "${{ secrets.DOCKHAND_WEBHOOK_SECRET }}" | \
+            openssl dgst -sha256 -hmac "${{ env.DOCKHAND_WEBHOOK_SECRET }}" | \
             awk '{print $NF}')"
 
           curl -v -sf -X POST \
-            "${{ secrets.DOCKHAND_WEBHOOK_URL }}" \
+            "${{ env.DOCKHAND_WEBHOOK_URL }}" \
             -H "Content-Type: application/json" \
             -H "X-Hub-Signature-256: $SIGNATURE" \
             -d "$PAYLOAD"
