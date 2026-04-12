@@ -33,6 +33,7 @@ services:
       TS_API_KEY: ${TS_API_KEY}
       TS_TAILNET: ${TS_TAILNET}
       ACME_EMAIL: ${ACME_EMAIL}
+      REFRESH_INTERVAL: ${REFRESH_INTERVAL}
       DEBUG: ${DEBUG}
     depends_on:
       caddy:

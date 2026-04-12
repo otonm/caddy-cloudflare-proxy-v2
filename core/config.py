@@ -60,7 +60,7 @@ class Settings(BaseSettings):
 
     # Optional — periodic refresh interval for the main page (seconds).
     # Must be at least 30 to avoid hammering the Cloudflare API.
-    refresh_interval: int = 300
+    refresh_interval: int = 60
 
     @field_validator("refresh_interval")
     @classmethod
