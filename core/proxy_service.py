@@ -297,7 +297,7 @@ async def delete_entry(entry_id: uuid.UUID) -> ProxyEntry:
     try:
         record = await get_a_record(deleted.zone_id, deleted.domain)
         if record:
-            record_id, _ = record
+            record_id, *_ = record
             await delete_a_record(deleted.zone_id, record_id)
             logger.info(f"Deleted Cloudflare A record for {deleted.domain}")
         else:

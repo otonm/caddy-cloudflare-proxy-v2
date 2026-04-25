@@ -75,8 +75,8 @@ async def list_zones() -> list[CloudflareZone]:
     return zones
 
 
-async def get_a_record(zone_id: str, name: str) -> tuple[str, str] | None:
-    """Look up an existing A record. Returns (record_id, ip) or None if not found."""
+async def get_a_record(zone_id: str, name: str) -> tuple[str, str, bool] | None:
+    """Look up an existing A record. Returns (record_id, ip, proxied) or None if not found."""
     async with _cf_client() as client:
         response = await client.get(
             f"/zones/{zone_id}/dns_records",
@@ -87,7 +87,7 @@ async def get_a_record(zone_id: str, name: str) -> tuple[str, str] | None:
     if not data.get("result"):
         return None
     record = data["result"][0]
-    return record["id"], record["content"]
+    return record["id"], record["content"], record.get("proxied", False)
 
 
 async def list_a_records(zone_id: str, zone_name: str = "") -> list[CfARecord]:
@@ -149,15 +149,15 @@ async def upsert_a_record(zone_id: str, name: str, ip: str) -> str:
     logger.info(f"Upserting Cloudflare A record: {name} → {ip}")
     existing = await get_a_record(zone_id, name)
     if existing:
-        record_id, current_ip = existing
-        if current_ip == ip:
-            logger.info(f"A record for {name} already correct ({ip}), no update needed")
+        record_id, current_ip, current_proxied = existing
+        if current_ip == ip and not current_proxied:
+            logger.info(f"A record for {name} already correct ({ip}, proxied=False), no update needed")
             return record_id
-        logger.info(f"Updating A record for {name}: {current_ip} → {ip}")
+        logger.info(f"Updating A record for {name}: {current_ip} → {ip}, proxied={current_proxied} → False")
         async with _cf_client() as client:
             response = await client.patch(
                 f"/zones/{zone_id}/dns_records/{record_id}",
-                json={"content": ip, "comment": MANAGED_COMMENT},
+                json={"content": ip, "ttl": 1, "proxied": False, "comment": MANAGED_COMMENT},
             )
             _check_response(response, f"update A record for {name}")
         return record_id
