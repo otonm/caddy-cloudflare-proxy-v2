@@ -75,8 +75,8 @@ async def list_zones() -> list[CloudflareZone]:
     return zones
 
 
-async def get_a_record(zone_id: str, name: str) -> tuple[str, str, bool] | None:
-    """Look up an existing A record. Returns (record_id, ip, proxied) or None if not found."""
+async def get_a_record(zone_id: str, name: str) -> tuple[str, str, bool, str] | None:
+    """Look up an existing A record. Returns (record_id, ip, proxied, comment) or None if not found."""
     async with _cf_client() as client:
         response = await client.get(
             f"/zones/{zone_id}/dns_records",
@@ -87,7 +87,7 @@ async def get_a_record(zone_id: str, name: str) -> tuple[str, str, bool] | None:
     if not data.get("result"):
         return None
     record = data["result"][0]
-    return record["id"], record["content"], record.get("proxied", False)
+    return record["id"], record["content"], record.get("proxied", False), record.get("comment", "")
 
 
 async def list_a_records(zone_id: str, zone_name: str = "") -> list[CfARecord]:
@@ -149,9 +149,9 @@ async def upsert_a_record(zone_id: str, name: str, ip: str) -> str:
     logger.info(f"Upserting Cloudflare A record: {name} → {ip}")
     existing = await get_a_record(zone_id, name)
     if existing:
-        record_id, current_ip, current_proxied = existing
-        if current_ip == ip and not current_proxied:
-            logger.info(f"A record for {name} already correct ({ip}, proxied=False), no update needed")
+        record_id, current_ip, current_proxied, current_comment = existing
+        if current_ip == ip and not current_proxied and current_comment == MANAGED_COMMENT:
+            logger.info(f"A record for {name} already correct ({ip}, proxied=False, comment set), no update needed")
             return record_id
         logger.info(f"Updating A record for {name}: {current_ip} → {ip}, proxied={current_proxied} → False")
         async with _cf_client() as client:

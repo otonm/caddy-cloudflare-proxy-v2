@@ -161,10 +161,11 @@ def _build_config(
 
     # Caddy's default ACME issuer needs the email injected via a catch-all
     # policy (no subjects field) when any HTTP-01 entries are present.
+    # Appended last so domain-specific DNS-01 policies (which come first in
+    # the list) are matched before the catch-all — Caddy uses first-match-wins.
     if has_http01:
         catchall_policy: dict = {"issuers": [{"module": "acme", "email": acme_email}]}
-        # Prepend so domain-specific policies (DNS-01) take precedence.
-        tls_policies.insert(0, catchall_policy)
+        tls_policies.append(catchall_policy)
 
     servers: dict = {}
     if http_routes:
